@@ -13,6 +13,11 @@
 #include <map>
 #include <cmath>
 
+#ifdef DEBUG_JOIN_FACES
+#include <sstream>
+#include <fstream>
+#endif
+
 /*! returns k if `pt=bbox[k]` or `(k + k+1)/2` if `pt` lies inbetween bbox[k] and bbox[k+1] */
 template <class Point_2, class Iso_rectangle_2>
 double index_on_bbox(const Point_2& pt, const Iso_rectangle_2& bbox)
@@ -585,6 +590,10 @@ struct Create_face_from_info{
 };
 
 
+/*!
+Version taking a range of points and a range of infos and creating the HDS cropped to the iso-rectangle.
+The size of both ranges are the same and the info of each point is associated to the corresponding face
+*/
 template <  class Input_kernel,
             class Exact_kernel,
             class PointIterator,
@@ -615,6 +624,9 @@ void create_hds_for_cropped_voronoi_diagram(
                                                                      Create_face_from_info<DT2, HDS>() );
 }
 
+/*!
+Version taking a range of points and creating the HDS cropped to the iso-rectangle
+*/
 template <  class Input_kernel,
             class Exact_kernel,
             class PointIterator,
@@ -639,9 +651,52 @@ void create_hds_for_cropped_voronoi_diagram(
                                                                       Default_create_face<DT2,HDS>());
 }
 
+#ifdef DEBUG_JOIN_FACES
+template <class HDS, class MapHandle, class UF>
+void write_hds_debug(HDS& hds, MapHandle& faces_to_handles, UF& faces_uf, const char* fname)
+{
+  std::ofstream output(fname);
+  for( typename HDS::Face_iterator fit=hds.faces_begin();fit!=hds.faces_end();++fit)
+  {
+    std::stringstream sstream;
+
+    typename HDS::Face_handle face_master=*faces_uf.find( faces_to_handles.find(fit)->second );
+    if ( fit!=face_master ) continue; //do it only once
+
+    //the halfedge pointer of the face might be incorrect, we look for a valid one.
+    typename HDS::Halfedge_iterator hit=hds.halfedges_begin();
+    for( ;hit!=hds.halfedges_end();++hit)
+    {
+      if ( hit->face()==typename HDS::Face_handle() ) continue; //hedge to be deleted
+      typename HDS::Face_handle hface =
+        *faces_uf.find( faces_to_handles.find(hit->face())->second ) ;
+      if (hface==fit) break;
+    }
+    CGAL_assertion( hit!=hds.halfedges_end() );
+    typename HDS::Halfedge_handle curr=hit, end=curr;
+
+    int i=0;
+    do{
+      CGAL_assertion( curr!= typename HDS::Halfedge_handle() );
+      //CGAL_assertion( curr->face()!=typename HDS::Face_handle() );
+      //CGAL_assertion( curr->face()==fit );
+      ++i;
+      sstream << curr->vertex()->point() << " 0\n";
+      curr=curr->next();
+    }while(curr!=end);
+    sstream << curr->vertex()->point() << " 0\n";
+    output << i+1 << " " << sstream.str() << std::endl;
+  }
+  output.close();
+}
+#endif
+
+#include <CGAL/Union_find.h>
+
 template <class HDS>
 void join_faces_with_same_color(HDS& hds)
 {
+  // collect the set of halfedges that need to be removed: incident faces have the same color
   std::vector<typename HDS::Halfedge_handle> hedges_to_remove;
   for (typename HDS::Halfedge_iterator hit=hds.halfedges_begin(),
                                        hit_end=hds.halfedges_end(); hit!=hit_end;
@@ -653,52 +708,307 @@ void join_faces_with_same_color(HDS& hds)
       hedges_to_remove.push_back(hit);
   }
 
+  // we use a union-find structure to keep track of the merge of faces
+  typedef CGAL::Union_find< typename HDS::Face_handle > Faces_UF;
+  Faces_UF faces_uf;
+  std::map<typename HDS::Face_handle, typename Faces_UF::handle> faces_to_handles;
+
+  //each face is placed into one component
+  for (typename HDS::Face_iterator fit=hds.faces_begin(), fit_end=hds.faces_end();fit!=fit_end;++fit)
+    faces_to_handles[fit]=faces_uf.make_set(fit);
+
+  //save the creation of the null halfedge
+  const typename HDS::Halfedge_handle null_halfedge = typename HDS::Halfedge_handle();
+
+  //set decorators for hds editing
   CGAL::HalfedgeDS_decorator<HDS> D(hds);
   CGAL::HalfedgeDS_items_decorator<HDS> item_decorator;
+
+  //main loop removing halfedges one by one
   std::size_t nb_hedges=hedges_to_remove.size();
   for (std::size_t i=0; i<nb_hedges; ++i)
   {
-    
-    typename HDS::Halfedge_handle hedge = hedges_to_remove[i];
+    #ifdef DEBUG_JOIN_FACES
+    std::stringstream ss;
+    if (i<10)
+      ss << "debug/hds-0"<<i<<".cgal";
+    else
+      ss << "debug/hds-"<<i<<".cgal";
+    write_hds_debug(hds, faces_to_handles, faces_uf , ss.str().c_str());
+
+    std::cout << "current edge ("<<i<<") is " << hedges_to_remove[i]->vertex()->point() << " 0 " << hedges_to_remove[i]->opposite()->vertex()->point() << " 0\n";
+    #endif
+
+    //check if the halfedge removal has already been taken care of:
+    //we set incident faces to null in that case
+    if ( hedges_to_remove[i]->is_border() &&
+         hedges_to_remove[i]->opposite()->is_border() )
+    {
+      hds.edges_erase(hedges_to_remove[i]);
+      continue;
+    }
+
+    //what we call a dangling edge is a sequence of edges inside a face. It can be attached to one
+    //or two connected component of the boundary of the face
+    bool is_dangling_edge = faces_uf.same_set(
+      faces_to_handles[ hedges_to_remove[i]->face()],
+      faces_to_handles[ hedges_to_remove[i]->opposite()->face() ]);
+
+    //what we call an isolated cycle is a hole in a given face
+    bool is_isolated_cycle=false;
+
+
+    //these two halfedges are used to bound the sequence of halfedges incident to the same
+    //faces and that need to be removed together.
+    //After the two while-loops, the target vertex of target is either connected
+    //to 1 or more that 3 edges. The same holds for the source vertex of source;
+    typename HDS::Halfedge_handle target = hedges_to_remove[i], source=target;
 
     //check if the valence of the target vertex is 2
-    if ( hedge->opposite() == hedge->next()->opposite()->next() )
+    while ( target->opposite() == target->next()->opposite()->next() &&
+            ( !is_dangling_edge || target->next()!=target->opposite() ) )//if the dangling edge is attached at one vertex only
     {
-      D.join_vertex(hedge->opposite());
-      //~ HDS::Vertex_handle to_remove=hedge->vertex();
-      //~ item_decorator.set_prev( hedge->next(), hedge->prev() );
-      //~ hedge->prev()->set_next( hedge->next() );
-      
-      //~ hedge->next()->opposite()->set_next( hedge->opposite()->next() );
-      //~ item_decorator.set_prev( hedge->opposite()->next(), hedge->next()->opposite() );
-      
-      //~ item_decorator.set_vertex(hedge->next()->opposite(), hedge->opposite()->vertex());
-      //~ //remove the vertex of valence 2
-      //~ hds.vertices_erase(to_remove);
-      //~ hds.edges_erase(hedge);
-      continue;
+      target=target->next();
+      if (source==target)
+      {
+        is_isolated_cycle=true;
+        break;
+      }
     }
 
     //check if the valence of the source vertex is 2
-    if ( hedge == hedge->opposite()->next()->opposite()->next() )
-    {
-      D.join_vertex(hedge);
-      //~ hedge=hedge->opposite();
-      //~ HDS::Vertex_handle to_remove=hedge->vertex();
-      //~ item_decorator.set_prev( hedge->next(), hedge->prev() );
-      //~ hedge->prev()->set_next( hedge->next() );
-      
-      //~ hedge->next()->opposite()->set_next( hedge->opposite()->next() );
-      //~ item_decorator.set_prev( hedge->opposite()->next(), hedge->next()->opposite() );
-      
-      //~ item_decorator.set_vertex(hedge->next()->opposite(), hedge->opposite()->vertex());
-      //~ //remove the vertex of valence 2
-      //~ hds.vertices_erase(to_remove);
-      //~ hds.edges_erase(hedge);      
-      continue;
-    }
-    
+    if (!is_isolated_cycle)
+      while ( source == source->opposite()->next()->opposite()->next() &&
+             ( !is_dangling_edge || source!=source->opposite()->next() ) )//if the dangling edge is attached at one vertex only
+        source=source->opposite()->next()->opposite();
+
     //in this case it is safe to remove the edge
-    D.join_face( hedges_to_remove[i] );
+    if (source==target && !is_dangling_edge && !is_isolated_cycle)
+    {
+      #ifdef DEBUG_JOIN_FACES
+      std::cout << "remove face\n";
+      #endif
+      //copy-paste of join_face function from the HalfedgeDS_decorator
+      //we just skip the face removal as we need it for the union-find
+      typename HDS::Halfedge_handle h=hedges_to_remove[i];
+      typename HDS::Halfedge_handle hprev = D.find_prev( h);
+      typename HDS::Halfedge_handle gprev = D.find_prev( h->opposite());
+      D.remove_tip( hprev);
+      D.remove_tip( gprev);
+
+      //put the two adjacent faces in the same component
+      faces_uf.unify_sets(
+        faces_to_handles[h->face()],
+        faces_to_handles[h->opposite()->face()] );
+      //hds.faces_erase( D.get_face( gprev));
+
+      hds.edges_erase( h);
+      h = hprev;
+      // 'half' of the halfedges have their correct faces.
+      // Here we do the remaining halfedges.
+      while ( h != gprev) h = h->next();
+
+      D.set_vertex_halfedge( hprev);
+      D.set_vertex_halfedge( gprev);
+
+
+      //D.join_face( hedges_to_remove[i] );
+    }
+    else
+    {
+      #ifdef DEBUG_JOIN_FACES
+      std::cout << "vertex " << target->opposite()->vertex()->point() << " 0\n";
+      std::cout << "2 " << target->vertex()->point() << " 0 " << source->opposite()->vertex()->point() << " 0\n";
+      std::cout << "target " << target->opposite()->vertex()->point() << " 0 " << target->vertex()->point() << " 0\n";
+      std::cout << "source " << source->opposite()->vertex()->point() << " 0 " << source->vertex()->point() << " 0\n";
+      #endif
+
+      if (!is_isolated_cycle)
+      {
+        if( target->vertex() == source->opposite()->vertex() )
+        {
+          //in this case we have an attached circle
+          #ifdef DEBUG_JOIN_FACES
+          std::cout << "FOUND ONE CYCLE ATTACHED\n";
+          #endif
+          if (target->next() != source)
+          {
+            typename HDS::Halfedge_handle tmp=source->opposite();
+            source=target->opposite();
+            target=tmp;
+          }
+
+          CGAL_assertion( target->next() == source );
+          //hds.faces_erase( target->face() );
+          faces_uf.unify_sets(
+            faces_to_handles[target->face()],
+            faces_to_handles[target->opposite()->face()] );
+
+          item_decorator.get_prev(target->opposite())->set_next( source->opposite()->next() );
+          item_decorator.set_prev( source->opposite()->next(),
+                                   item_decorator.get_prev(target->opposite()) );
+          //update vertex hedge pointer
+          item_decorator.set_vertex_halfedge( item_decorator.get_prev(target->opposite()) );
+          //update face pointer
+          //item_decorator.set_face_halfedge( source->opposite()->next() );
+        }
+        else{
+          typename HDS::Halfedge_handle target_next = target->next();
+          const typename HDS::Halfedge_handle target_opp_prev = item_decorator.get_prev(target->opposite());
+          const typename HDS::Halfedge_handle source_prev = item_decorator.get_prev(source);
+          const typename HDS::Halfedge_handle source_opp_next = source->opposite()->next();
+
+          //update next/prev around target
+          if( target_next != target->opposite() ) //not a pending edge
+          {
+            item_decorator.set_prev(target_next, target_opp_prev);
+            target_opp_prev->set_next( target_next );
+            item_decorator.set_vertex_halfedge( target_opp_prev );
+            #ifdef DEBUG_JOIN_FACES
+            std::cout << "Linking " << target_opp_prev->opposite()->vertex()->point() << " 0 " << target_opp_prev->vertex()->point() << " 0"
+                      << " to "     << target_next->opposite()->vertex()->point() << " 0 " << target_next->vertex()->point() << " 0" << std::endl;
+            #endif
+            //update face halfedge pointer in case it was removed
+            //item_decorator.set_face_halfedge(face_kept, target_next);
+          }
+          else
+          {
+            #ifdef DEBUG_JOIN_FACES
+            std::cout << "delete vertex a\n";
+            #endif
+            hds.vertices_erase(target->vertex());
+          }
+
+
+          //update next/prev around source
+          if(source != source_opp_next)
+          {
+            source_prev->set_next( source_opp_next );
+            item_decorator.set_vertex_halfedge( source_prev );
+            item_decorator.set_prev(source_opp_next, source_prev);
+            #ifdef DEBUG_JOIN_FACES
+            std::cout << "Linking " << source_prev->opposite()->vertex()->point() << " 0 " << source_prev->vertex()->point() << " 0"
+                      << " to "     << source_opp_next->opposite()->vertex()->point() << " 0 " << source_opp_next->vertex()->point() << " 0" << std::endl;
+            #endif
+            //update face halfedge pointer in case it was removed
+            //item_decorator.set_face_halfedge(face_kept, source_prev);
+          }
+          else
+          {
+            #ifdef DEBUG_JOIN_FACES
+            std::cout << "delete vertex b\n";
+            #endif
+            hds.vertices_erase(source->opposite()->vertex());
+          }
+
+          if ( !is_dangling_edge )
+          {
+            //hds.faces_erase( target->face() );
+            faces_uf.unify_sets(
+              faces_to_handles[target->face()],
+              faces_to_handles[target->opposite()->face()] );
+
+            //update face pointer of edges of the face removed
+            while(target_next!=source_opp_next)
+            {
+              //item_decorator.set_face(target_next, face_kept);
+              target_next=target_next->next();
+            }
+          }
+        }
+      }
+      else
+      {
+        #ifdef DEBUG_JOIN_FACES
+        std::cout << "FOUND A CYCLE\n";
+        std::cout << "delete vertex d\n";
+        #endif
+        CGAL_assertion(source==target);
+        //hds.faces_erase( target->face() );
+        faces_uf.unify_sets(
+          faces_to_handles[target->face()],
+          faces_to_handles[target->opposite()->face()] );
+        source=source->next();
+
+        hds.vertices_erase(target->vertex()); //remove target vertex not remove in the loop below
+      }
+
+      //set to null the pointer of edges to remove
+      //and remove vertices in the middle
+      while(source!=target)
+      {
+        item_decorator.set_face(source, typename HDS::Face_handle());
+        item_decorator.set_face(source->opposite(), typename HDS::Face_handle());
+        hds.vertices_erase(source->vertex());
+        #ifdef DEBUG_JOIN_FACES
+        std::cout << "delete vertex c\n";
+        #endif
+        source=source->next();
+      }
+      item_decorator.set_face(target, typename HDS::Face_handle());
+      item_decorator.set_face(target->opposite(), typename HDS::Face_handle());
+
+      //do remove current edge
+      hds.edges_erase(hedges_to_remove[i]);
+    }
+  }
+
+  //once all edges have been removed, we need to update the face pointers
+  for (typename HDS::Face_iterator fit=hds.faces_begin(), fit_end=hds.faces_end();
+                                   fit!=fit_end; ++fit)
+  {
+    //reset face halfedge to indicate that they have not been processed
+    item_decorator.set_face_halfedge(fit, null_halfedge );
+  }
+
+  typename HDS::Face_iterator next_available_face=hds.faces_begin();
+
+  std::set<typename HDS::Halfedge_handle> hedge_visited;
+  std::vector< std::pair<int, typename HDS::Halfedge_handle> > face_info;
+
+  for (typename HDS::Halfedge_iterator hit=hds.halfedges_begin(), hit_end=hds.halfedges_end();
+                                       hit!=hit_end; ++hit)
+  {
+    if (hit->is_border()) continue;
+    if ( !hedge_visited.insert(hit).second ) continue; //already visited
+
+    typename HDS::Face_handle face=*faces_uf.find( faces_to_handles[hit->face()] );
+    item_decorator.set_face(hit, face); //set the face of the halfedge
+    if (face->halfedge() == null_halfedge)
+    {
+      const typename HDS::Vertex::Point& p=hit->opposite()->vertex()->point();
+      const typename HDS::Vertex::Point& q=hit->vertex()->point();
+      typename HDS::Halfedge_handle tmp=hit;
+      CGAL::Orientation orient =
+        orientation( p, q, tmp->next()->vertex()->point() );
+      while (orient==CGAL::COLLINEAR)
+      {
+        tmp=tmp->next();
+        orient = orientation( p, q, tmp->next()->vertex()->point() );
+      }
+
+      if( orient==CGAL::COUNTERCLOCKWISE )
+        item_decorator.set_face_halfedge(face, hit); //this is the outer ccb
+      else
+        face->holes.push_back(hit); //this is a hole
+    }
+    else
+      face->holes.push_back(hit); //this is a hole
+
+    //set the face of the halfedges
+    typename HDS::Halfedge_handle h=hit->next();
+    while(h!=hit){
+      hedge_visited.insert(h);
+      item_decorator.set_face(h, face);
+      h=h->next();
+    }
+  }
+
+  for (typename HDS::Face_iterator fit=hds.faces_begin(); fit!=hds.faces_end(); )
+  {
+    if (fit->halfedge() == null_halfedge)
+      hds.faces_erase(fit++);
+    else
+      ++fit;
   }
 }

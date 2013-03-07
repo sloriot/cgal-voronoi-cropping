@@ -9,10 +9,12 @@
 // A face type with a color member variable.
 template <class Refs>
 class Face_with_int : public CGAL::HalfedgeDS_face_base<Refs> {
+  typedef typename Refs::Halfedge_handle Halfedge_handle;
   int m_index;
 public:
   Face_with_int(int c=-1):m_index(c) {}
   int& color() {return m_index; }
+  std::vector<Halfedge_handle> holes;
 };
 
 // A vertex type with a boolean
