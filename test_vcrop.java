@@ -43,7 +43,8 @@ public class test_vcrop {
       if (fh.color() == 2) fh.set_color(1); //update the color
     }
 
-    vcrop.insert( new Point_2(2,2), 1);
+    vcrop.insert( new Point_2(1,0), 1);
+    vcrop.insert( new Point_2(0.5,0.5), 2);
     vcrop.voronoi_diagram(hds, isorect);//clear the hds and replace it with a new
     CGAL_Voronoi_cropping_2.join_faces(hds);
     print_info(hds);
@@ -52,6 +53,8 @@ public class test_vcrop {
 
     for ( HDS_Face_handle fh : hds.faces() )
     {
+      if ( fh.has_holes() ) System.out.println("Start a new face with holes\n");
+      else System.out.println("Start a new face\n");
       HDS_Halfedge_handle hedge = fh.halfedge();
       HDS_Halfedge_handle first = hedge.clone();
 
@@ -60,6 +63,20 @@ public class test_vcrop {
           hedge=hedge.next();
       }
       while(!hedge.equals(first) );
+
+      if ( fh.has_holes() )
+      {
+        for (HDS_Halfedge_handle hh : fh.holes() )
+        {
+          first = hh.clone();
+
+          do{
+              System.out.println("2 "+ hh.vertex().point() + " 0 " + hh.opposite().vertex().point() + " 0");
+              hh=hh.next();
+          }
+          while(!hh.equals(first) );
+        }
+      }
     }
 
   }

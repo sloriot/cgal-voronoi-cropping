@@ -32,6 +32,19 @@ SWIG_CGAL_add_java_loadLibrary(CGAL_Voronoi_cropping_2)
   void set_color(int c){
     $self->get_data()->color()=c;
   }
+
+  bool has_holes(){
+    return !$self->get_data()->holes.empty();
+  }
+
+  SWIG_CGAL_Iterator<std::vector<HDS_d::Halfedge_handle>::iterator,HDSHalfedge_wrapper<HDS_d> >
+  holes()
+  {
+    return
+      SWIG_CGAL_Iterator<std::vector<HDS_d::Halfedge_handle>::iterator,HDSHalfedge_wrapper<HDS_d> >
+      ( $self->get_data()->holes.begin(), $self->get_data()->holes.end() );
+  }
+
 }
 
 %pragma(java) jniclassimports=%{
@@ -61,7 +74,8 @@ SWIG_CGAL_set_as_java_iterator(SWIG_CGAL_Iterator,HDS_Halfedge_handle,)
 SWIG_CGAL_declare_identifier_of_template_class(HDS_Halfedge_iterator,SWIG_CGAL_Iterator< HDS_d::Halfedge_iterator, HDSHalfedge_wrapper<HDS_d> >)
 SWIG_CGAL_set_as_java_iterator(SWIG_CGAL_Iterator,HDS_Face_handle,)
 SWIG_CGAL_declare_identifier_of_template_class(HDS_Face_iterator,SWIG_CGAL_Iterator< HDS_d::Face_iterator, HDSFace_wrapper<HDS_d> >)
-
+SWIG_CGAL_set_as_java_iterator(SWIG_CGAL_Iterator,HDS_Halfedge_handle,)
+SWIG_CGAL_declare_identifier_of_template_class(HDS_Face_hole_iterator,SWIG_CGAL_Iterator<std::vector<HDS_d::Halfedge_handle>::iterator,HDSHalfedge_wrapper<HDS_d> >)
 //general modifier for convenience
 %typemap(javaimports)       General_modifier<HDS_d> %{import CGAL.Kernel.Point_2;%}
 SWIG_CGAL_declare_identifier_of_template_class(HalfedgeDS_modifier,General_modifier<HDS_d>)
