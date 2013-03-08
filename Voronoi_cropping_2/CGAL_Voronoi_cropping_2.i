@@ -76,33 +76,16 @@ SWIG_CGAL_array_of_int_to_vector_of_int_typemap_in
 
 %pragma(java) moduleimports=%{import CGAL.Kernel.Iso_rectangle_2; import CGAL.Kernel.Point_2; import java.util.Collection; import java.util.Iterator;%}
 
-void cropped_voronoi_diagram_2(Wrapper_iterator_helper<Point_2>::input, boost::shared_ptr<std::vector<int> >, Iso_rectangle_2&, HalfedgeDS_wrapper<HDS_d>&);
 void join_faces(HalfedgeDS_wrapper<HDS_d>&);
 
 %{
-  #include <SWIG_CGAL/Common/Wrapper_iterator_helper.h>
-  #include <SWIG_CGAL/Kernel/Iso_rectangle_2.h>
-  #include <boost/shared_ptr.hpp>
-  #include <voronoi_cropping.h>
-
-  void cropped_voronoi_diagram_2(
-    Wrapper_iterator_helper<Point_2>::input points,
-    boost::shared_ptr<std::vector<int> > colors,
-    Iso_rectangle_2& iso_rectangle,
-    HalfedgeDS_wrapper<HDS_d>& hds)
-  {
-    typedef CGAL::Simple_cartesian< CGAL::Lazy_exact_nt<CGAL::Gmpq> > Exact_kernel;
-    create_hds_for_cropped_voronoi_diagram<EPIC_Kernel, Exact_kernel>(
-      SWIG_CGAL::get_begin(points),
-      SWIG_CGAL::get_end(points),
-      colors->begin(), colors->end(),
-      iso_rectangle.get_data(),
-      hds.get_data()
-    );
-  }
-
+  #include <SWIG_CGAL/User_packages/Voronoi_cropping_2/Voronoi_cropping_2.h>
   void join_faces(HalfedgeDS_wrapper<HDS_d>& hds)
   {
     join_faces_with_same_color(hds.get_data());
   }
 %}
+
+%typemap(javaimports)  Voronoi_cropping_wrapper_2 %{ import CGAL.Kernel.Point_2; import CGAL.Kernel.Iso_rectangle_2; import java.util.Iterator; %}
+%include "SWIG_CGAL/User_packages/Voronoi_cropping_2/Voronoi_cropping_2.h"
+%template (Voronoi_cropping_2) Voronoi_cropping_wrapper_2<HalfedgeDS_wrapper<HDS_d> >;

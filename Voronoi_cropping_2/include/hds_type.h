@@ -17,6 +17,17 @@ public:
   std::vector<Halfedge_handle> holes;
 };
 
+// A face type with a ptr as a color member variable.
+template <class Refs>
+class Face_with_int_ptr : public CGAL::HalfedgeDS_face_base<Refs> {
+  typedef typename Refs::Halfedge_handle Halfedge_handle;
+  int* m_color_ptr;
+public:
+  Face_with_int_ptr(int* ptr=NULL):m_color_ptr(ptr) {}
+  int& color() {return *m_color_ptr; }
+  std::vector<Halfedge_handle> holes;
+};
+
 // A vertex type with a boolean
 template <class Refs, class Point>
 class Vertex_with_bool : public CGAL::HalfedgeDS_vertex_base<Refs, CGAL::Tag_true, Point> {
@@ -33,6 +44,18 @@ struct HDS_Item_extra : public CGAL::HalfedgeDS_items_2 {
     template <class Refs, class Traits>
     struct Face_wrapper {
         typedef Face_with_int<Refs> Face;
+    };
+
+    template <class Refs, class Traits>
+    struct Vertex_wrapper {
+        typedef Vertex_with_bool<Refs, typename Traits::Point_2 > Vertex;
+    };
+};
+
+struct HDS_Item_extra_ptr : public CGAL::HalfedgeDS_items_2 {
+    template <class Refs, class Traits>
+    struct Face_wrapper {
+        typedef Face_with_int_ptr<Refs> Face;
     };
 
     template <class Refs, class Traits>

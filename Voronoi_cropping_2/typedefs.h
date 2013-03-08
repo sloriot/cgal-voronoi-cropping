@@ -11,6 +11,6 @@
 #include <SWIG_CGAL/Kernel/typedefs.h>
 #include <hds_type.h>
 
-typedef CGAL::HalfedgeDS_default<EPIC_Kernel, HDS_Item_extra> HDS_d;
+typedef CGAL::HalfedgeDS_default<EPIC_Kernel, HDS_Item_extra_ptr> HDS_d;
 
 #endif //SWIG_CGAL_HALFEDGEDS_TYPEDEFS_H

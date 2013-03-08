@@ -4,39 +4,52 @@ import CGAL.Voronoi_cropping_2.HalfedgeDS;
 import CGAL.Voronoi_cropping_2.HDS_Face_handle;
 import CGAL.Voronoi_cropping_2.HDS_Halfedge_handle;
 import CGAL.Voronoi_cropping_2.CGAL_Voronoi_cropping_2;
+import CGAL.Voronoi_cropping_2.Voronoi_cropping_2;
 import java.util.Vector;
 
 public class test_vcrop {
 
+  public static void print_info(HalfedgeDS hds)
+  {
+    System.out.println("HDS-info "+hds.size_of_vertices()+", "+hds.size_of_halfedges()+", "+hds.size_of_faces());
+  }
+
+
   public static void main(String arg[]){
-    
+
     Vector<Point_2> points = new Vector<Point_2>(7);
     points.add( new Point_2(0,0) );
     points.add( new Point_2(0,1) );
     points.add( new Point_2(1,1) );
 
     int[] colors = new int[] {1,1,2};
-    
+
     Iso_rectangle_2 isorect =
       new Iso_rectangle_2( new Point_2(-2,-2), new Point_2(2,2) );
-    
+
     HalfedgeDS hds = new HalfedgeDS();
-    
-    CGAL_Voronoi_cropping_2.cropped_voronoi_diagram_2(points.iterator(), colors, isorect, hds);
+
+
+    Voronoi_cropping_2 vcrop=new Voronoi_cropping_2();
+    vcrop.insert(points.iterator(), colors);
+
+    vcrop.voronoi_diagram(hds, isorect);
+    print_info(hds);
     CGAL_Voronoi_cropping_2.join_faces(hds);
-   
+    print_info(hds);
+
     for ( HDS_Face_handle fh : hds.faces() )
     {
       HDS_Halfedge_handle hedge = fh.halfedge();
       HDS_Halfedge_handle first = hedge.clone();
-      
+
       do{
           System.out.println("2 "+ hedge.vertex().point() + " 0 " + hedge.opposite().vertex().point() + " 0");
           hedge=hedge.next();
       }
       while(!hedge.equals(first) );
     }
-    
+
   }
-  
+
 }

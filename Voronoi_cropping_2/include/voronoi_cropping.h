@@ -593,6 +593,7 @@ struct Create_face_from_info{
 /*!
 Version taking a range of points and a range of infos and creating the HDS cropped to the iso-rectangle.
 The size of both ranges are the same and the info of each point is associated to the corresponding face
+\todo Create_face_from_info should be a template parameter
 */
 template <  class Input_kernel,
             class Exact_kernel,
@@ -607,7 +608,8 @@ void create_hds_for_cropped_voronoi_diagram(
   const typename Input_kernel::Iso_rectangle_2& iso_rect,
   HDS& hds )
 {
-  typedef CGAL::Triangulation_vertex_base_with_info_2<int, Input_kernel>     Vb;
+  typedef typename std::iterator_traits<InfoIterator>::value_type Vertex_info;
+  typedef CGAL::Triangulation_vertex_base_with_info_2<Vertex_info, Input_kernel>     Vb;
   typedef Face_info_for_DT2<Input_kernel, Exact_kernel> Face_info;
   typedef CGAL::Triangulation_face_base_with_info_2<Face_info, Input_kernel> Fb;
   typedef CGAL::Triangulation_data_structure_2<Vb, Fb>                       Tds;
