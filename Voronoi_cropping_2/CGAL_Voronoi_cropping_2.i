@@ -18,6 +18,8 @@ SWIG_CGAL_add_java_loadLibrary(CGAL_Voronoi_cropping_2)
 %{
 #include <SWIG_CGAL/User_packages/Voronoi_cropping_2/typedefs.h>
 #include <SWIG_CGAL/HalfedgeDS/all_includes.h>
+#include <SWIG_CGAL/User_packages/Voronoi_cropping_2/HalfedgeDS.h>
+#include <SWIG_CGAL/User_packages/Voronoi_cropping_2/Voronoi_cropping_2.h>
 %}
 
 //include files
@@ -41,9 +43,10 @@ SWIG_CGAL_add_java_loadLibrary(CGAL_Voronoi_cropping_2)
 
 //definitions
 %include "SWIG_CGAL/HalfedgeDS/HalfedgeDS.h"
+%include "SWIG_CGAL/User_packages/Voronoi_cropping_2/HalfedgeDS.h"
 %include "SWIG_CGAL/HalfedgeDS/HalfedgeDS_handles.h"
-//%include "SWIG_CGAL/HalfedgeDS/HalfedgeDS_decorator.h"
-//%include "SWIG_CGAL/HalfedgeDS/General_modifier.h"
+%include "SWIG_CGAL/HalfedgeDS/HalfedgeDS_decorator.h"
+%include "SWIG_CGAL/HalfedgeDS/General_modifier.h"
 
 //template instantiations of handles
 SWIG_CGAL_declare_identifier_of_template_class(HDS_Halfedge_handle,HDSHalfedge_wrapper<HDS_d>)
@@ -60,14 +63,15 @@ SWIG_CGAL_set_as_java_iterator(SWIG_CGAL_Iterator,HDS_Face_handle,)
 SWIG_CGAL_declare_identifier_of_template_class(HDS_Face_iterator,SWIG_CGAL_Iterator< HDS_d::Face_iterator, HDSFace_wrapper<HDS_d> >)
 
 //general modifier for convenience
-//%typemap(javaimports)       General_modifier<HDS_d> %{import CGAL.Kernel.Point_2;%}
-//SWIG_CGAL_declare_identifier_of_template_class(HalfedgeDS_modifier,General_modifier<HDS_d>)
+%typemap(javaimports)       General_modifier<HDS_d> %{import CGAL.Kernel.Point_2;%}
+SWIG_CGAL_declare_identifier_of_template_class(HalfedgeDS_modifier,General_modifier<HDS_d>)
 // template instantiation of HDS class
 %typemap(javaimports)                       HalfedgeDS_wrapper %{import CGAL.Kernel.Point_2;%}
-SWIG_CGAL_declare_identifier_of_template_class(HalfedgeDS,HalfedgeDS_wrapper<HDS_d>)
+SWIG_CGAL_declare_identifier_of_template_class(HalfedgeDS_vc_base,HalfedgeDS_wrapper<HDS_d>)
+SWIG_CGAL_declare_identifier_of_template_class(HalfedgeDS,HalfedgeDS_vc_wrapper<HDS_d>)
 // template instantiation of HDS decorator class
-//%typemap(javaimports)                       HalfedgeDS_decorator_wrapper %{import CGAL.Kernel.Point_2;%}
-//SWIG_CGAL_declare_identifier_of_template_class(HalfedgeDS_decorator,HalfedgeDS_decorator_wrapper<HDS_d>)
+%typemap(javaimports)                       HalfedgeDS_decorator_wrapper %{import CGAL.Kernel.Point_2;%}
+SWIG_CGAL_declare_identifier_of_template_class(HalfedgeDS_decorator,HalfedgeDS_decorator_wrapper<HDS_d>)
 
 //typemap for point input iterator
 SWIG_CGAL_set_wrapper_iterator_helper_input(Point_2)
@@ -76,11 +80,10 @@ SWIG_CGAL_array_of_int_to_vector_of_int_typemap_in
 
 %pragma(java) moduleimports=%{import CGAL.Kernel.Iso_rectangle_2; import CGAL.Kernel.Point_2; import java.util.Collection; import java.util.Iterator;%}
 
-void join_faces(HalfedgeDS_wrapper<HDS_d>&);
+void join_faces(HalfedgeDS_vc_wrapper<HDS_d>&);
 
 %{
-  #include <SWIG_CGAL/User_packages/Voronoi_cropping_2/Voronoi_cropping_2.h>
-  void join_faces(HalfedgeDS_wrapper<HDS_d>& hds)
+  void join_faces(HalfedgeDS_vc_wrapper<HDS_d>& hds)
   {
     join_faces_with_same_color(hds.get_data());
   }
@@ -88,4 +91,4 @@ void join_faces(HalfedgeDS_wrapper<HDS_d>&);
 
 %typemap(javaimports)  Voronoi_cropping_wrapper_2 %{ import CGAL.Kernel.Point_2; import CGAL.Kernel.Iso_rectangle_2; import java.util.Iterator; %}
 %include "SWIG_CGAL/User_packages/Voronoi_cropping_2/Voronoi_cropping_2.h"
-%template (Voronoi_cropping_2) Voronoi_cropping_wrapper_2<HalfedgeDS_wrapper<HDS_d> >;
+%template (Voronoi_cropping_2) Voronoi_cropping_wrapper_2<HalfedgeDS_vc_wrapper<HDS_d> >;

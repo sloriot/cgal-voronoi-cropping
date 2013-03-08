@@ -38,6 +38,18 @@ public class test_vcrop {
     CGAL_Voronoi_cropping_2.join_faces(hds);
     print_info(hds);
 
+    for (HDS_Face_handle fh : hds.faces() )
+    {
+      if (fh.color() == 2) fh.set_color(1); //update the color
+    }
+
+    vcrop.insert( new Point_2(2,2), 1);
+    vcrop.voronoi_diagram(hds, isorect);//clear the hds and replace it with a new
+    CGAL_Voronoi_cropping_2.join_faces(hds);
+    print_info(hds);
+
+
+
     for ( HDS_Face_handle fh : hds.faces() )
     {
       HDS_Halfedge_handle hedge = fh.halfedge();
