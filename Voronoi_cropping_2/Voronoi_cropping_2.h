@@ -63,6 +63,8 @@ public:
     );
   }
 
+  /// \todo shall we keep an internal dt3 to avoid rebuilding it in case of a few additionnal points inserted?
+
   //~ Iso_rectangle_2 get_bonding_iso_rectangle()
   //~ {return Iso_rectangle_2();}
 
