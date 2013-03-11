@@ -115,49 +115,70 @@ template < class Input_kernel,
            class Create_hds_face >
 class Cropped_Voronoi_hds_creator{
 /// typedefs
+/// ========
   typedef typename HDS::Halfedge_handle Halfedge_handle;
   typedef typename HDS::Face_handle HDS_Face_handle;
   typedef typename HDS::Vertex_handle HDS_Vertex_handle;
+  typedef typename DT2::Face_handle DT2_Face_handle;
+
+  typedef std::map< DT2_Face_handle, HDS_Vertex_handle > Vertex_map;
+  typedef std::map< std::pair< DT2_Face_handle, DT2_Face_handle >, Halfedge_handle > Dual_hedge_map;
 /// data members
-  /// this function is used to keep track of the halfedges incident to
+/// ============
+  /// this map is used to keep track of the halfedges incident to
   /// a vertex on the iso-rectangle boundary, in order to link the
   /// border halfedges together. Filling the map is done using
   /// set_border_hedge_source and set_border_hedge_target
   std::map<HDS_Vertex_handle, std::pair<Halfedge_handle, Halfedge_handle> > border_hedges;
+  /// map used to match a Delaunay edge to a dual cropped edge
+  Dual_hedge_map dual_hedge_map;
+  /// map used to match a Delaunay face to a dual vertex
+  Vertex_map vertex_map;
 
+  /// convert from input to exact
+  CGAL::Cartesian_converter<Input_kernel, Exact_kernel> to_exact;
+  /// reference to the Delaunay triangulation with the input points
+  const DT2& dt2;
+  /// reference to the input iso rectangle
+  const typename Input_kernel::Iso_rectangle_2& input_box;
+  const typename Exact_kernel::Iso_rectangle_2  exact_box;
+  /// reference to the output hds
+  HDS& hds;
+  /// reference to the functor for creating faces
+  const Create_hds_face& create_face;
+
+/// private functions
+/// =================
   /// see border_hedges
-  void set_border_hedge_source( Halfedge_handle h, HDS_Vertex_handle v  )
+  void set_border_hedge_source( Halfedge_handle h, HDS_Vertex_handle v )
   {
     border_hedges[v].first=h;
   }
 
   /// same border_hedges
-  void set_border_hedge_target( Halfedge_handle h, HDS_Vertex_handle v)
+  void set_border_hedge_target( Halfedge_handle h, HDS_Vertex_handle v )
   {
     border_hedges[v].second=h;
   }
 
   /// This function adds the missing halfedges and vertices to close a Voronoi
   /// face intersected by the iso-rectangle boundary
-  template <class Iso_rectangle_2>
   void
   add_halfedge_on_iso_rectangle(
-    HDS& hds,
     HDS_Face_handle new_face,
     Halfedge_handle previous,
-    Halfedge_handle next,
-    const Iso_rectangle_2& bbox )
+    Halfedge_handle next )
   {
-    //ensure target of previous is on the bbox boundary
+    //ensure target of previous is on the rectangle boundary
     CGAL_assertion(
-      bbox.xmin()==previous->vertex()->point().x() ||  bbox.xmax()==previous->vertex()->point().x() ||
-      bbox.ymin()==previous->vertex()->point().y() ||  bbox.ymax()==previous->vertex()->point().y()
+      input_box.xmin()==previous->vertex()->point().x() ||  input_box.xmax()==previous->vertex()->point().x() ||
+      input_box.ymin()==previous->vertex()->point().y() ||  input_box.ymax()==previous->vertex()->point().y()
     );
 
-    //ensure source of next is on the bbox boundary
+    //ensure source of next is on the rectangle boundary
     CGAL_assertion(
-      bbox.xmin()==next->opposite()->vertex()->point().x() ||  bbox.xmax()==next->opposite()->vertex()->point().x() ||
-      bbox.ymin()==next->opposite()->vertex()->point().y() ||  bbox.ymax()==next->opposite()->vertex()->point().y()
+      input_box.xmin()==next->opposite()->vertex()->point().x() ||  input_box.xmax()==next->opposite()->vertex()->point().x() ||
+      input_box.ymin()==next->opposite()->vertex()->point().y() ||  input_box.ymax()==next->opposite()->vertex()->point().y()
     );
 
     //ensure the points are different
@@ -166,9 +187,9 @@ class Cropped_Voronoi_hds_creator{
     /// \todo and also do a link of hedges and return in case of identical vertex
     CGAL_assertion( next->opposite()->vertex()->point()!=previous->vertex()->point() );
 
-    //bbox[0], bbox[1], bbox[2], bbox[3] are counterclockwise oriented
-    double index_target=index_on_bbox(previous->vertex()->point(),bbox);
-    double index_next=index_on_bbox(next->opposite()->vertex()->point(),bbox);
+    //input_box[0], input_box[1], input_box[2], input_box[3] are counterclockwise oriented
+    double index_target=index_on_bbox(previous->vertex()->point(),input_box);
+    double index_next=index_on_bbox(next->opposite()->vertex()->point(),input_box);
 
     if (index_next < index_target) index_next+=4;
     int k = std::floor( index_target);
@@ -178,7 +199,7 @@ class Cropped_Voronoi_hds_creator{
     while (++k <= index_next)
     {
       HDS_Vertex_handle new_vertex =
-        hds.vertices_push_back( typename HDS::Vertex( bbox[k] ) );
+        hds.vertices_push_back( typename HDS::Vertex( input_box[k] ) );
 
       Halfedge_handle new_hh=hds.edges_push_back(typename HDS::Halfedge(), typename HDS::Halfedge());
       item_decorator.set_face(new_hh,new_face);
@@ -210,11 +231,8 @@ class Cropped_Voronoi_hds_creator{
   }
 
   /// utility function to ensure that each dual of Delaunay vertex is unique
-  template <class Face_handle, class Vertex_map>
   HDS_Vertex_handle
-  get_dual_vertex(  Face_handle face,
-                    HDS& hds,
-                    Vertex_map& vertex_map )
+  get_dual_vertex( DT2_Face_handle face )
   {
     CGAL_precondition( face->info().is_dual_in_bbox() );
     std::pair<typename Vertex_map::iterator, bool> insert_res =
@@ -228,16 +246,15 @@ class Cropped_Voronoi_hds_creator{
     return insert_res.first->second;
   }
 
-  /// return true is `primitive` intersects exact_iso_rect as a segment. The result is put
+  /// return true is `primitive` intersects exact_box as a segment. The result is put
   /// into `res`. The orientation of the segment is the same as that of `bisector`
   template <class Primitive, class Bisector>
   bool crop_to_iso_rectangle( const Primitive& primitive,
                               const Bisector& bisector,
-                              const typename Exact_kernel::Iso_rectangle_2& exact_iso_rect,
                               typename Exact_kernel::Segment_2& res)
   {
     CGAL::Object obj =
-      typename Exact_kernel::Intersect_3()( primitive, exact_iso_rect );
+      typename Exact_kernel::Intersect_3()( primitive, exact_box );
     const typename Exact_kernel::Segment_2* s=
       CGAL::object_cast<typename Exact_kernel::Segment_2>(&obj);
 
@@ -255,24 +272,24 @@ class Cropped_Voronoi_hds_creator{
   /// boundary are correctly rounded into the input type.
   /// \todo use is_on_border and m_on_boundary instead?
   typename Input_kernel::Point_2
-  convert_to_input(const typename Exact_kernel::Point_2& p, const typename Exact_kernel::Iso_rectangle_2& bbox)
+  convert_to_input(const typename Exact_kernel::Point_2& p)
   {
     CGAL::NT_converter<typename Exact_kernel::FT, typename Input_kernel::FT> to_input;
     typename Input_kernel::FT x,y;
 
     //handle x coordinate
-    if ( p.x() == bbox.xmin() )
-      x=to_input(bbox.xmin());
+    if ( p.x() == exact_box.xmin() )
+      x=to_input(exact_box.xmin());
     else{
-      if ( p.x() == bbox.xmax() ) x=to_input(bbox.xmax());
+      if ( p.x() == exact_box.xmax() ) x=to_input(exact_box.xmax());
       else x=to_input(p.x());
     }
 
     //handle y coordinate
-    if ( p.y() == bbox.ymin() )
-      y=to_input(bbox.ymin());
+    if ( p.y() == exact_box.ymin() )
+      y=to_input(exact_box.ymin());
     else{
-      if ( p.y() == bbox.ymax() ) y=to_input(bbox.ymax());
+      if ( p.y() == exact_box.ymax() ) y=to_input(exact_box.ymax());
       else y=to_input(p.y());
     }
 
@@ -280,32 +297,24 @@ class Cropped_Voronoi_hds_creator{
   }
 
   /// given an oriented pair of incident Delaunay faces, returns the dual halfedge cropped to
-  /// `exact_iso_rect` if the intersection is not restricted to a point and Halfedge_handle() otherwise.
+  /// `exact_box` if the intersection is not restricted to a point and Halfedge_handle() otherwise.
   /// Edge are computed thanks to a map
-  template<class Hedge_map, class Vertex_map>
   Halfedge_handle
-  get_dual_halfedge_cropped(  typename DT2::Face_handle source_face,
-                              typename DT2::Face_handle target_face,
-                              int edge_index_in_source_face,
-                              const typename CGAL::Iso_rectangle_2<Exact_kernel>& exact_iso_rect,
-                              HDS& hds,
-                              Hedge_map& hedge_map,
-                              Vertex_map& vertex_map,
-                              const DT2& dt2)
+  get_dual_halfedge_cropped(  DT2_Face_handle source_face,
+                              DT2_Face_handle target_face,
+                              int edge_index_in_source_face)
   {
     typedef Halfedge_handle Halfedge_handle;
     typedef typename HDS::Vertex_handle Vertex_handle;
-    typedef typename DT2::Face_handle Face_handle;
     CGAL::HalfedgeDS_items_decorator<HDS> item_decorator;
 
-    std::pair<Face_handle, Face_handle> sorted_pair=
+    std::pair<DT2_Face_handle, DT2_Face_handle> sorted_pair=
       make_sorted_pair(source_face, target_face);
 
-    std::pair< typename Hedge_map::iterator, bool> insert_res =
-      hedge_map.insert( std::make_pair( sorted_pair, Halfedge_handle() ) );
+    std::pair< typename Dual_hedge_map::iterator, bool> insert_res =
+      dual_hedge_map.insert( std::make_pair( sorted_pair, Halfedge_handle() ) );
 
     HDS_Vertex_handle source_vertex, target_vertex;
-    CGAL::Cartesian_converter<Input_kernel, Exact_kernel> to_exact;
 
     if ( insert_res.second )
     {
@@ -329,10 +338,10 @@ class Cropped_Voronoi_hds_creator{
         {
           //the dual is a line
           typename Exact_kernel::Segment_2 inter;
-          if ( !crop_to_iso_rectangle(bisector, bisector,exact_iso_rect, inter) )
+          if ( !crop_to_iso_rectangle(bisector, bisector, inter) )
             return Halfedge_handle();
-          source_vertex=hds.vertices_push_back( typename HDS::Vertex( convert_to_input( inter.source(), exact_iso_rect )) );
-          target_vertex=hds.vertices_push_back( typename HDS::Vertex( convert_to_input( inter.target(), exact_iso_rect )) );
+          source_vertex=hds.vertices_push_back( typename HDS::Vertex( convert_to_input( inter.source() )) );
+          target_vertex=hds.vertices_push_back( typename HDS::Vertex( convert_to_input( inter.target() )) );
           source_vertex->is_on_border()=true;
           target_vertex->is_on_border()=true;
         }
@@ -341,17 +350,17 @@ class Cropped_Voronoi_hds_creator{
           //the dual is a ray
           typename Exact_kernel::Ray_2 ray( target_face->info().dual(), bisector.opposite() );
           typename Exact_kernel::Segment_2 inter;
-          if ( !crop_to_iso_rectangle(ray, bisector,exact_iso_rect, inter) )
+          if ( !crop_to_iso_rectangle(ray, bisector, inter) )
             return Halfedge_handle();
           if ( target_face->info().is_dual_in_bbox() )
           {
-            target_vertex=get_dual_vertex(target_face, hds, vertex_map);
-            source_vertex=hds.vertices_push_back( typename HDS::Vertex( convert_to_input( inter.source(), exact_iso_rect )) );
+            target_vertex=get_dual_vertex(target_face);
+            source_vertex=hds.vertices_push_back( typename HDS::Vertex( convert_to_input( inter.source() )) );
             source_vertex->is_on_border()=true;
           }
           else{
-            source_vertex=hds.vertices_push_back( typename HDS::Vertex( convert_to_input( inter.source(), exact_iso_rect )) );
-            target_vertex=hds.vertices_push_back( typename HDS::Vertex( convert_to_input( inter.target(), exact_iso_rect )) );
+            source_vertex=hds.vertices_push_back( typename HDS::Vertex( convert_to_input( inter.source() )) );
+            target_vertex=hds.vertices_push_back( typename HDS::Vertex( convert_to_input( inter.target() )) );
             source_vertex->is_on_border()=true;
             target_vertex->is_on_border()=true;
           }
@@ -376,17 +385,17 @@ class Cropped_Voronoi_hds_creator{
           //the dual is a ray
           typename Exact_kernel::Ray_2 ray( source_face->info().dual(), bisector );
           typename Exact_kernel::Segment_2 inter;
-          if ( !crop_to_iso_rectangle(ray, bisector,exact_iso_rect, inter) )
+          if ( !crop_to_iso_rectangle(ray, bisector, inter) )
             return Halfedge_handle();
           if ( source_face->info().is_dual_in_bbox() )
           {
-            source_vertex=get_dual_vertex(source_face, hds, vertex_map);
-            target_vertex=hds.vertices_push_back( typename HDS::Vertex( convert_to_input( inter.target(), exact_iso_rect )) );
+            source_vertex=get_dual_vertex(source_face);
+            target_vertex=hds.vertices_push_back( typename HDS::Vertex( convert_to_input( inter.target() )) );
             target_vertex->is_on_border()=true;
           }
           else{
-            source_vertex=hds.vertices_push_back( typename HDS::Vertex( convert_to_input( inter.source(), exact_iso_rect )) );
-            target_vertex=hds.vertices_push_back( typename HDS::Vertex( convert_to_input( inter.target(), exact_iso_rect )) );
+            source_vertex=hds.vertices_push_back( typename HDS::Vertex( convert_to_input( inter.source() )) );
+            target_vertex=hds.vertices_push_back( typename HDS::Vertex( convert_to_input( inter.target() )) );
             source_vertex->is_on_border()=true;
             target_vertex->is_on_border()=true;
           }
@@ -401,28 +410,28 @@ class Cropped_Voronoi_hds_creator{
           if ( source_face->info().is_dual_in_bbox() &&
                target_face->info().is_dual_in_bbox() )
           {
-            source_vertex = get_dual_vertex(source_face, hds, vertex_map);
-            target_vertex = get_dual_vertex(target_face, hds, vertex_map);
+            source_vertex = get_dual_vertex(source_face);
+            target_vertex = get_dual_vertex(target_face);
           }
           else{
             typename Exact_kernel::Segment_2 segment( source_face->info().dual(), target_face->info().dual() );
             typename Exact_kernel::Segment_2 inter(typename Exact_kernel::Point_2(66,66), typename Exact_kernel::Point_2(66,66));
-            if ( !crop_to_iso_rectangle(segment, segment,exact_iso_rect, inter) )
+            if ( !crop_to_iso_rectangle(segment, segment, inter) )
               return Halfedge_handle();
 
 
             if ( source_face->info().is_dual_in_bbox() )
-              source_vertex = get_dual_vertex(source_face, hds, vertex_map);
+              source_vertex = get_dual_vertex(source_face);
             else
             {
-              source_vertex = hds.vertices_push_back( typename HDS::Vertex( convert_to_input( inter.source(), exact_iso_rect )) );
+              source_vertex = hds.vertices_push_back( typename HDS::Vertex( convert_to_input( inter.source() )) );
               source_vertex->is_on_border()=true;
             }
             if ( target_face->info().is_dual_in_bbox() )
-              target_vertex = get_dual_vertex(target_face, hds, vertex_map);
+              target_vertex = get_dual_vertex(target_face);
             else
             {
-              target_vertex = hds.vertices_push_back( typename HDS::Vertex( convert_to_input( inter.target(), exact_iso_rect )) );
+              target_vertex = hds.vertices_push_back( typename HDS::Vertex( convert_to_input( inter.target() )) );
               target_vertex->is_on_border()=true;
             }
           }
@@ -456,16 +465,23 @@ class Cropped_Voronoi_hds_creator{
   }
 public:
 
-  void operator()(
-    const DT2& dt2,
-    const typename Input_kernel::Iso_rectangle_2& iso_rect,
-    HDS& hds,
-    const Create_hds_face& create_face)
+/// constructors
+/// ============
+  Cropped_Voronoi_hds_creator(
+    const DT2& dt2_,
+    const typename Input_kernel::Iso_rectangle_2& iso_rect_,
+    HDS& hds_,
+    const Create_hds_face& create_face_)
+  :dt2(dt2_), input_box(iso_rect_), exact_box(to_exact(input_box)), hds(hds_), create_face(create_face_)
+  {}
+
+/// main function
+/// =============
+  void operator()()
   {
     /// \todo handle the case of a degenerate input set
-    CGAL::Cartesian_converter<Input_kernel, Exact_kernel> to_exact;
+
     typename Exact_kernel::Orientation_2 orientation;
-    typename Exact_kernel::Iso_rectangle_2 exact_iso_rect = to_exact( iso_rect );
 
     for (typename DT2::Finite_faces_iterator  fit=dt2.finite_faces_begin(),
                                               fit_end=dt2.finite_faces_end();
@@ -477,16 +493,11 @@ public:
                 i,
                 orientation(
                   fit->info().dual(),
-                  exact_iso_rect[i],
-                  exact_iso_rect[i+1] ) );
+                  exact_box[i],
+                  exact_box[i+1] ) );
     }
 
     CGAL::HalfedgeDS_items_decorator<HDS> item_decorator;
-
-    std::map< std::pair< typename DT2::Face_handle,
-                         typename DT2::Face_handle >,
-              Halfedge_handle > dual_hedge_map;
-    std::map< typename DT2::Face_handle, HDS_Vertex_handle > vertex_map;
 
     Halfedge_handle null_halfedge=Halfedge_handle();
 
@@ -494,17 +505,16 @@ public:
                                                  vit_end=dt2.finite_vertices_end();
                                                  vit!=vit_end; ++vit )
     {
-      typename DT2::Face_handle current_face=vit->face(), first_face=current_face;
+      DT2_Face_handle current_face=vit->face(), first_face=current_face;
       std::vector<Halfedge_handle> new_hedges;
 
       do{
         int other_vertex_index=DT2::ccw( current_face->index(vit) );
-        typename DT2::Face_handle neighbor_face=current_face->neighbor(other_vertex_index);
+        DT2_Face_handle neighbor_face=current_face->neighbor(other_vertex_index);
 
         Halfedge_handle hedge =
           get_dual_halfedge_cropped(current_face, neighbor_face,
-                                    other_vertex_index, exact_iso_rect,
-                                    hds, dual_hedge_map, vertex_map, dt2);
+                                    other_vertex_index );
 
         if (hedge!=null_halfedge) new_hedges.push_back(hedge);
 
@@ -528,7 +538,7 @@ public:
           {
             CGAL_assertion( new_hedges[i+1]->opposite()->vertex()->is_on_border() );
             //we need one to several hedges on the iso-rectangle boundary to link the two vertices
-            add_halfedge_on_iso_rectangle(hds, new_face, new_hedges[i], new_hedges[i+1], iso_rect);
+            add_halfedge_on_iso_rectangle(new_face, new_hedges[i], new_hedges[i+1]);
           }
           else
           {
@@ -557,10 +567,10 @@ public:
       typename DT2::Vertex_handle vh;
       HDS_Face_handle new_face=hds.faces_push_back( create_face(vh) );
       HDS_Vertex_handle vertices[4] = {
-        hds.vertices_push_back( typename HDS::Vertex( iso_rect[0] ) ),
-        hds.vertices_push_back( typename HDS::Vertex( iso_rect[1] ) ),
-        hds.vertices_push_back( typename HDS::Vertex( iso_rect[2] ) ),
-        hds.vertices_push_back( typename HDS::Vertex( iso_rect[3] ) )
+        hds.vertices_push_back( typename HDS::Vertex( input_box[0] ) ),
+        hds.vertices_push_back( typename HDS::Vertex( input_box[1] ) ),
+        hds.vertices_push_back( typename HDS::Vertex( input_box[2] ) ),
+        hds.vertices_push_back( typename HDS::Vertex( input_box[3] ) )
       };
 
       Halfedge_handle new_hedges[4] = {
@@ -597,8 +607,8 @@ void create_hds_for_cropped_voronoi_diagram(
   HDS& hds,
   const Create_hds_face& create_face)
 {
-  Cropped_Voronoi_hds_creator<Input_kernel, Exact_kernel, HDS, DT2, Create_hds_face> cropping;
-  cropping(dt2, iso_rect, hds, create_face);
+  Cropped_Voronoi_hds_creator<Input_kernel, Exact_kernel, HDS, DT2, Create_hds_face> cropping(dt2, iso_rect, hds, create_face);
+  cropping();
 }
 
 /// \todo in case when no iso_rectangle is provided,  consider a sufficently large iso_rectangle to contain the result and mark
