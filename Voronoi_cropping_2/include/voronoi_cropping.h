@@ -52,7 +52,10 @@ class Face_info_for_DT2
 {
   std::bitset<4> m_orientation_vs_bbox;
   std::bitset<4> m_on_boundary;
-  typename Exact_kernel::Point_2 m_dual;
+  std::size_t m_dual_index;
+
+  typedef std::vector<typename Exact_kernel::Point_2> Voronoi_vertices;
+
 public:
   void set_orientation(int i, CGAL::Orientation o)
   {
@@ -62,7 +65,7 @@ public:
         m_orientation_vs_bbox.set(i);
         break;
       case CGAL::COLLINEAR:
-        std::cout << "inexact_dual " << inexact_dual() << std::endl;
+        std::cout << "inexact_dual" << std::endl;
         m_on_boundary.set(i);
       default:
         //do nothing
@@ -70,28 +73,27 @@ public:
     }
   }
 
-  template <class Face_handle>
-  void compute_dual(Face_handle fh)
+  std::size_t dual_index() const
   {
-    CGAL::Cartesian_converter<Input_kernel,Exact_kernel> to_exact;
-    m_dual = typename Exact_kernel::Construct_circumcenter_2()(
-                        to_exact( fh->vertex(0)->point() ),
-                        to_exact( fh->vertex(1)->point() ),
-                        to_exact( fh->vertex(2)->point() )
-    );
+    return m_dual_index;
+  }
+
+  void set_dual_index(std::size_t i)
+  {
+    m_dual_index=i;
   }
 
   const typename Exact_kernel::Point_2&
-  dual() const
+  dual(const Voronoi_vertices& voronoi_vertices) const
   {
-    return m_dual;
+    return voronoi_vertices[m_dual_index];
   }
 
   const typename Input_kernel::Point_2
-  inexact_dual() const
+  inexact_dual(const Voronoi_vertices& voronoi_vertices) const
   {
     CGAL::Cartesian_converter<Exact_kernel, Input_kernel> to_input;
-    return to_input( m_dual );
+    return to_input( voronoi_vertices[m_dual_index] );
   }
 
   bool is_dual_in_bbox() const{
@@ -121,7 +123,7 @@ class Cropped_Voronoi_hds_creator{
   typedef typename HDS::Vertex_handle HDS_Vertex_handle;
   typedef typename DT2::Face_handle DT2_Face_handle;
 
-  typedef std::map< DT2_Face_handle, HDS_Vertex_handle > Vertex_map;
+  typedef std::map< std::size_t, HDS_Vertex_handle > Vertex_map;
   typedef std::map< std::pair< DT2_Face_handle, DT2_Face_handle >, Halfedge_handle > Dual_hedge_map;
 /// data members
 /// ============
@@ -134,6 +136,8 @@ class Cropped_Voronoi_hds_creator{
   Dual_hedge_map dual_hedge_map;
   /// map used to match a Delaunay face to a dual vertex
   Vertex_map vertex_map;
+  /// a vector containing all dual vertices
+  std::vector< typename Exact_kernel::Point_2 > exact_voronoi_vertices;
 
   /// convert from input to exact
   CGAL::Cartesian_converter<Input_kernel, Exact_kernel> to_exact;
@@ -236,12 +240,12 @@ class Cropped_Voronoi_hds_creator{
   {
     CGAL_precondition( face->info().is_dual_in_bbox() );
     std::pair<typename Vertex_map::iterator, bool> insert_res =
-      vertex_map.insert( std::make_pair(face, HDS_Vertex_handle()) );
+      vertex_map.insert( std::make_pair(face->info().dual_index(), HDS_Vertex_handle()) );
     if (insert_res.second)
     {
       insert_res.first->second =
         hds.vertices_push_back(
-          typename HDS::Vertex( face->info().inexact_dual() ) );
+          typename HDS::Vertex( face->info().inexact_dual(exact_voronoi_vertices) ) );
     }
     return insert_res.first->second;
   }
@@ -348,7 +352,7 @@ class Cropped_Voronoi_hds_creator{
         else
         {
           //the dual is a ray
-          typename Exact_kernel::Ray_2 ray( target_face->info().dual(), bisector.opposite() );
+          typename Exact_kernel::Ray_2 ray( target_face->info().dual(exact_voronoi_vertices), bisector.opposite() );
           typename Exact_kernel::Segment_2 inter;
           if ( !crop_to_iso_rectangle(ray, bisector, inter) )
             return Halfedge_handle();
@@ -383,7 +387,7 @@ class Cropped_Voronoi_hds_creator{
             to_exact( source_face->vertex( DT2::cw(edge_index_in_source_face) )->point() )  ) );
 
           //the dual is a ray
-          typename Exact_kernel::Ray_2 ray( source_face->info().dual(), bisector );
+          typename Exact_kernel::Ray_2 ray( source_face->info().dual(exact_voronoi_vertices), bisector );
           typename Exact_kernel::Segment_2 inter;
           if ( !crop_to_iso_rectangle(ray, bisector, inter) )
             return Halfedge_handle();
@@ -402,9 +406,7 @@ class Cropped_Voronoi_hds_creator{
         }
         else
         {
-          /// \todo test here if the dual edge is degenerated
-          //if ( source_face->info().dual_index() == target_face->info().dual_index() ) return Halfedge_handle();
-
+          if ( source_face->info().dual_index() == target_face->info().dual_index() ) return Halfedge_handle();
 
           //the dual is a segment
           if ( source_face->info().is_dual_in_bbox() &&
@@ -414,8 +416,9 @@ class Cropped_Voronoi_hds_creator{
             target_vertex = get_dual_vertex(target_face);
           }
           else{
-            typename Exact_kernel::Segment_2 segment( source_face->info().dual(), target_face->info().dual() );
-            typename Exact_kernel::Segment_2 inter(typename Exact_kernel::Point_2(66,66), typename Exact_kernel::Point_2(66,66));
+            typename Exact_kernel::Segment_2 segment( source_face->info().dual(exact_voronoi_vertices),
+                                                      target_face->info().dual(exact_voronoi_vertices) );
+            typename Exact_kernel::Segment_2 inter;
             if ( !crop_to_iso_rectangle(segment, segment, inter) )
               return Halfedge_handle();
 
@@ -479,20 +482,40 @@ public:
 /// =============
   void operator()()
   {
-    /// \todo handle the case of a degenerate input set
-
     typename Exact_kernel::Orientation_2 orientation;
+    typename Exact_kernel::Construct_circumcenter_2 circumcenter;
+
+    exact_voronoi_vertices.reserve( dt2.number_of_faces() );
+
+    typedef std::map<typename Exact_kernel::Point_2, std::size_t> Point_to_index_map;
+    Point_to_index_map point_to_index;
+
+    std::size_t index=0;
 
     for (typename DT2::Finite_faces_iterator  fit=dt2.finite_faces_begin(),
                                               fit_end=dt2.finite_faces_end();
                                               fit!=fit_end; ++fit )
     {
-      fit->info().compute_dual(fit);
+      std::pair<typename Point_to_index_map::iterator, bool> insert_res=
+        point_to_index.insert(
+          std::make_pair(
+                  circumcenter( to_exact( fit->vertex(0)->point() ),
+                                to_exact( fit->vertex(1)->point() ),
+                                to_exact( fit->vertex(2)->point() ) ),
+                  index )
+        );
+
+      if ( insert_res.second ){
+        exact_voronoi_vertices.push_back( insert_res.first->first );
+        ++index;
+      }
+
+      fit->info().set_dual_index(insert_res.first->second);
       for (int i=0;i<4;++i)
         fit->info().set_orientation(
                 i,
                 orientation(
-                  fit->info().dual(),
+                  fit->info().dual(exact_voronoi_vertices),
                   exact_box[i],
                   exact_box[i+1] ) );
     }
