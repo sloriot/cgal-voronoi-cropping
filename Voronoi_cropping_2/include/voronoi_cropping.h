@@ -652,6 +652,9 @@ public:
       item_decorator.set_face_halfedge(new_face, new_hedges[0]);
     }
   }
+
+  const typename Input_kernel::Iso_rectangle_2& get_input_box() const
+  { return input_box; }
 };
 
 /// function calling the functor
@@ -676,13 +679,15 @@ template <  class Input_kernel,
             class HDS,
             class DT2,
             class Create_hds_face >
-void create_hds_for_cropped_voronoi_diagram(
+const typename Input_kernel::Iso_rectangle_2&
+create_hds_for_cropped_voronoi_diagram(
   const DT2& dt2,
   HDS& hds,
   const Create_hds_face& create_face)
 {
   Cropped_Voronoi_hds_creator<Input_kernel, Exact_kernel, HDS, DT2, Create_hds_face> cropping(dt2, hds, create_face);
   cropping.run();
+  return cropping.get_input_box();
 }
 
 /// \todo in case when no iso_rectangle is provided,  consider a sufficently large iso_rectangle to contain the result and mark
@@ -744,13 +749,14 @@ void create_hds_for_cropped_voronoi_diagram(
 }
 
 /*!
-Version taking a range of points and creating the HDS cropped to the iso-rectangle
+Version taking a range of points and creating the HDS cropped to the default iso-rectangle
 */
 template <  class Input_kernel,
             class Exact_kernel,
             class PointIterator,
             class HDS >
-void create_hds_for_cropped_voronoi_diagram(
+const typename Input_kernel::Iso_rectangle_2&
+create_hds_for_cropped_voronoi_diagram(
   PointIterator point_begin,
   PointIterator point_end,
   const typename Input_kernel::Iso_rectangle_2& iso_rect,
@@ -764,14 +770,15 @@ void create_hds_for_cropped_voronoi_diagram(
 
   DT2 dt2( point_begin, point_end );
 
-  create_hds_for_cropped_voronoi_diagram<Input_kernel, Exact_kernel>( dt2,
-                                                                      iso_rect,
-                                                                      hds,
-                                                                      Default_create_face<DT2,HDS>());
+  return
+    create_hds_for_cropped_voronoi_diagram<Input_kernel, Exact_kernel>( dt2,
+                                                                        iso_rect,
+                                                                        hds,
+                                                                        Default_create_face<DT2,HDS>());
 }
 
 /*!
-Version taking a range of points and a range of infos and creating the HDS cropped to the iso-rectangle.
+Version taking a range of points and a range of infos and creating the HDS cropped to the default iso-rectangle.
 The size of both ranges are the same and the info of each point is associated to the corresponding face
 \todo Create_face_from_info should be a template parameter
 */
@@ -780,7 +787,8 @@ template <  class Input_kernel,
             class PointIterator,
             class InfoIterator,
             class HDS >
-void create_hds_for_cropped_voronoi_diagram(
+const typename Input_kernel::Iso_rectangle_2&
+create_hds_for_cropped_voronoi_diagram(
   PointIterator point_begin,
   PointIterator point_end,
   InfoIterator info_begin,
@@ -799,19 +807,21 @@ void create_hds_for_cropped_voronoi_diagram(
     boost::make_zip_iterator( boost::make_tuple(point_begin, info_begin) ),
     boost::make_zip_iterator( boost::make_tuple(point_end, info_end) ) );
 
+  return
     create_hds_for_cropped_voronoi_diagram<Input_kernel, Exact_kernel>( dt2,
-                                                                        hds,
-                                                                        Create_face_from_info<DT2, HDS>() );
+                                                                          hds,
+                                                                          Create_face_from_info<DT2, HDS>() );
 }
 
 /*!
-Version taking a range of points and creating the HDS cropped to the iso-rectangle
+Version taking a range of points and creating the HDS cropped to the default iso-rectangle
 */
 template <  class Input_kernel,
             class Exact_kernel,
             class PointIterator,
             class HDS >
-void create_hds_for_cropped_voronoi_diagram(
+const typename Input_kernel::Iso_rectangle_2&
+create_hds_for_cropped_voronoi_diagram(
   PointIterator point_begin,
   PointIterator point_end,
   HDS& hds)
@@ -824,9 +834,10 @@ void create_hds_for_cropped_voronoi_diagram(
 
   DT2 dt2( point_begin, point_end );
 
-  create_hds_for_cropped_voronoi_diagram<Input_kernel, Exact_kernel>( dt2,
-                                                                      hds,
-                                                                      Default_create_face<DT2,HDS>());
+  return
+    create_hds_for_cropped_voronoi_diagram<Input_kernel, Exact_kernel>( dt2,
+                                                                        hds,
+                                                                        Default_create_face<DT2,HDS>());
 }
 
 #ifdef DEBUG_JOIN_FACES
