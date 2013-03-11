@@ -138,14 +138,17 @@ class Cropped_Voronoi_hds_creator{
   Vertex_map vertex_map;
   /// a vector containing all dual vertices
   std::vector< typename Exact_kernel::Point_2 > exact_voronoi_vertices;
+  /// decorator
+  CGAL::HalfedgeDS_items_decorator<HDS> item_decorator;
 
   /// convert from input to exact
   CGAL::Cartesian_converter<Input_kernel, Exact_kernel> to_exact;
   /// reference to the Delaunay triangulation with the input points
   const DT2& dt2;
-  /// reference to the input iso rectangle
-  const typename Input_kernel::Iso_rectangle_2& input_box;
-  const typename Exact_kernel::Iso_rectangle_2  exact_box;
+  /// iso rectangle to which we crop the Voronoi diagram
+  typename Input_kernel::Iso_rectangle_2 input_box;
+  /// the exact version
+  typename Exact_kernel::Iso_rectangle_2 exact_box;
   /// reference to the output hds
   HDS& hds;
   /// reference to the functor for creating faces
@@ -199,7 +202,6 @@ class Cropped_Voronoi_hds_creator{
     int k = std::floor( index_target);
 
   //add the missing vertices
-    CGAL::HalfedgeDS_items_decorator<HDS> item_decorator;
     while (++k <= index_next)
     {
       HDS_Vertex_handle new_vertex =
@@ -310,7 +312,6 @@ class Cropped_Voronoi_hds_creator{
   {
     typedef Halfedge_handle Halfedge_handle;
     typedef typename HDS::Vertex_handle Vertex_handle;
-    CGAL::HalfedgeDS_items_decorator<HDS> item_decorator;
 
     std::pair<DT2_Face_handle, DT2_Face_handle> sorted_pair=
       make_sorted_pair(source_face, target_face);
@@ -466,23 +467,9 @@ class Cropped_Voronoi_hds_creator{
            source_face == sorted_pair.first ) ?
       insert_res.first->second : insert_res.first->second->opposite();
   }
-public:
 
-/// constructors
-/// ============
-  Cropped_Voronoi_hds_creator(
-    const DT2& dt2_,
-    const typename Input_kernel::Iso_rectangle_2& iso_rect_,
-    HDS& hds_,
-    const Create_hds_face& create_face_)
-  :dt2(dt2_), input_box(iso_rect_), exact_box(to_exact(input_box)), hds(hds_), create_face(create_face_)
-  {}
-
-/// main function
-/// =============
-  void operator()()
+  void init_dt_face_info()
   {
-    typename Exact_kernel::Orientation_2 orientation;
     typename Exact_kernel::Construct_circumcenter_2 circumcenter;
 
     exact_voronoi_vertices.reserve( dt2.number_of_faces() );
@@ -491,7 +478,6 @@ public:
     Point_to_index_map point_to_index;
 
     std::size_t index=0;
-
     for (typename DT2::Finite_faces_iterator  fit=dt2.finite_faces_begin(),
                                               fit_end=dt2.finite_faces_end();
                                               fit!=fit_end; ++fit )
@@ -511,6 +497,58 @@ public:
       }
 
       fit->info().set_dual_index(insert_res.first->second);
+    }
+  }
+
+  /// init input_box and exact_box so that all Voronoi vertices are included
+  void init_boxes()
+  {
+    CGAL::Bbox_2 bbox=exact_voronoi_vertices[0].bbox();
+    std::size_t nb_element = exact_voronoi_vertices.size();
+    for(std::size_t i=1; i< nb_element; ++i)
+      bbox=bbox+exact_voronoi_vertices[i].bbox();
+    double dx = 0.0025 * ( bbox.xmax() - bbox.xmin() );
+    double dy = 0.0025 * ( bbox.ymax() - bbox.ymin() );
+    input_box=typename Input_kernel::Iso_rectangle_2( bbox.xmin()-dx, bbox.ymin()-dy,
+                                                      bbox.xmax()+dx, bbox.ymax()+dy);
+    exact_box=to_exact(input_box);
+  }
+
+public:
+
+/// constructors
+/// ============
+  Cropped_Voronoi_hds_creator(
+    const DT2& dt2_,
+    const typename Input_kernel::Iso_rectangle_2& iso_rect_,
+    HDS& hds_,
+    const Create_hds_face& create_face_)
+  :dt2(dt2_), input_box(iso_rect_), exact_box(to_exact(input_box)), hds(hds_), create_face(create_face_)
+  {
+    init_dt_face_info();
+  }
+
+  Cropped_Voronoi_hds_creator(
+    const DT2& dt2_,
+    HDS& hds_,
+    const Create_hds_face& create_face_)
+  :dt2(dt2_), hds(hds_), create_face(create_face_)
+  {
+    init_dt_face_info();
+    init_boxes();
+  }
+
+
+/// main function
+/// =============
+  void run()
+  {
+    //set orientation of dual vertex wrt rectangle
+    typename Exact_kernel::Orientation_2 orientation;
+    for (typename DT2::Finite_faces_iterator  fit=dt2.finite_faces_begin(),
+                                              fit_end=dt2.finite_faces_end();
+                                              fit!=fit_end; ++fit )
+    {
       for (int i=0;i<4;++i)
         fit->info().set_orientation(
                 i,
@@ -519,8 +557,6 @@ public:
                   exact_box[i],
                   exact_box[i+1] ) );
     }
-
-    CGAL::HalfedgeDS_items_decorator<HDS> item_decorator;
 
     Halfedge_handle null_halfedge=Halfedge_handle();
 
@@ -631,7 +667,22 @@ void create_hds_for_cropped_voronoi_diagram(
   const Create_hds_face& create_face)
 {
   Cropped_Voronoi_hds_creator<Input_kernel, Exact_kernel, HDS, DT2, Create_hds_face> cropping(dt2, iso_rect, hds, create_face);
-  cropping();
+  cropping.run();
+}
+
+/// function calling the functor
+template <  class Input_kernel,
+            class Exact_kernel,
+            class HDS,
+            class DT2,
+            class Create_hds_face >
+void create_hds_for_cropped_voronoi_diagram(
+  const DT2& dt2,
+  HDS& hds,
+  const Create_hds_face& create_face)
+{
+  Cropped_Voronoi_hds_creator<Input_kernel, Exact_kernel, HDS, DT2, Create_hds_face> cropping(dt2, hds, create_face);
+  cropping.run();
 }
 
 /// \todo in case when no iso_rectangle is provided,  consider a sufficently large iso_rectangle to contain the result and mark
@@ -715,6 +766,65 @@ void create_hds_for_cropped_voronoi_diagram(
 
   create_hds_for_cropped_voronoi_diagram<Input_kernel, Exact_kernel>( dt2,
                                                                       iso_rect,
+                                                                      hds,
+                                                                      Default_create_face<DT2,HDS>());
+}
+
+/*!
+Version taking a range of points and a range of infos and creating the HDS cropped to the iso-rectangle.
+The size of both ranges are the same and the info of each point is associated to the corresponding face
+\todo Create_face_from_info should be a template parameter
+*/
+template <  class Input_kernel,
+            class Exact_kernel,
+            class PointIterator,
+            class InfoIterator,
+            class HDS >
+void create_hds_for_cropped_voronoi_diagram(
+  PointIterator point_begin,
+  PointIterator point_end,
+  InfoIterator info_begin,
+  InfoIterator info_end,
+  HDS& hds )
+{
+  typedef typename std::iterator_traits<InfoIterator>::value_type Vertex_info;
+  typedef CGAL::Triangulation_vertex_base_with_info_2<Vertex_info, Input_kernel>     Vb;
+  typedef Face_info_for_DT2<Input_kernel, Exact_kernel> Face_info;
+  typedef CGAL::Triangulation_face_base_with_info_2<Face_info, Input_kernel> Fb;
+  typedef CGAL::Triangulation_data_structure_2<Vb, Fb>                       Tds;
+  typedef CGAL::Delaunay_triangulation_2<Input_kernel, Tds>                  DT2;
+
+  DT2 dt2;
+  dt2.insert(
+    boost::make_zip_iterator( boost::make_tuple(point_begin, info_begin) ),
+    boost::make_zip_iterator( boost::make_tuple(point_end, info_end) ) );
+
+    create_hds_for_cropped_voronoi_diagram<Input_kernel, Exact_kernel>( dt2,
+                                                                        hds,
+                                                                        Create_face_from_info<DT2, HDS>() );
+}
+
+/*!
+Version taking a range of points and creating the HDS cropped to the iso-rectangle
+*/
+template <  class Input_kernel,
+            class Exact_kernel,
+            class PointIterator,
+            class HDS >
+void create_hds_for_cropped_voronoi_diagram(
+  PointIterator point_begin,
+  PointIterator point_end,
+  HDS& hds)
+{
+  typedef CGAL::Triangulation_vertex_base_2<Input_kernel>     Vb;
+  typedef Face_info_for_DT2<Input_kernel, Exact_kernel> Face_info;
+  typedef CGAL::Triangulation_face_base_with_info_2<Face_info, Input_kernel> Fb;
+  typedef CGAL::Triangulation_data_structure_2<Vb, Fb>                       Tds;
+  typedef CGAL::Delaunay_triangulation_2<Input_kernel, Tds>                  DT2;
+
+  DT2 dt2( point_begin, point_end );
+
+  create_hds_for_cropped_voronoi_diagram<Input_kernel, Exact_kernel>( dt2,
                                                                       hds,
                                                                       Default_create_face<DT2,HDS>());
 }

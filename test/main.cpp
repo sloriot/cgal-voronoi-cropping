@@ -56,7 +56,7 @@ int main(int argc, char** argv)
 
   CGAL::Random rng(0);
   CGAL::Random_points_in_disc_2<K::Point_2,Creator> g( 1,rng);
-  CGAL::cpp11::copy_n( g, n, std::back_inserter(points));
+  CGAL::cpp11::copy_n( g, n, std::back_inserter(points) );
 
   std::ofstream output("points.xyz");
   for (int i=0; i <n; ++i)
@@ -73,7 +73,8 @@ int main(int argc, char** argv)
   output.close();
 
   //create_hds_for_cropped_voronoi_diagram<K, Exact_kernel>(points.begin(), points.end(), bbox, hds);
-  create_hds_for_cropped_voronoi_diagram<K, Exact_kernel>(points.begin(), points.end(), colors.begin(), colors.end(), bbox, hds);
+  //create_hds_for_cropped_voronoi_diagram<K, Exact_kernel>(points.begin(), points.end(), colors.begin(), colors.end(), bbox, hds);
+  create_hds_for_cropped_voronoi_diagram<K, Exact_kernel>(points.begin(), points.end(), colors.begin(), colors.end(), hds);
   write_hds(hds, "hds.cgal");
 
 
