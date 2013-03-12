@@ -55,6 +55,7 @@ bool check(const HDS& hds, std::size_t v, std::size_t e, std::size_t f)
 
 void test1()
 {
+  std::cout << "test1" <<std::endl;
   std::vector<K::Point_2> points;
   points.push_back( K::Point_2(0,0) );
   points.push_back( K::Point_2(0,1) );
@@ -148,6 +149,17 @@ void test3()
     K::Iso_rectangle_2 bbox(0, 0, 2, 2);
     create_hds_for_cropped_voronoi_diagram<K, Exact_kernel>(points.begin(), points.end(), bbox, hds);
     CGAL_assertion ( check(hds, 8, 20, 3) );
+
+    CGAL::HalfedgeDS_decorator<HDS> d(hds);
+    CGAL_assertion( d.is_valid(false,3) );
+  }
+
+  {
+    std::cout << "  test3-4\n";
+    HDS hds;
+    K::Iso_rectangle_2 bbox(-2, -2, -1, -1);
+    create_hds_for_cropped_voronoi_diagram<K, Exact_kernel>(points.begin(), points.end(), bbox, hds);
+    CGAL_assertion ( check(hds, 4, 8, 1) );
 
     CGAL::HalfedgeDS_decorator<HDS> d(hds);
     CGAL_assertion( d.is_valid(false,3) );

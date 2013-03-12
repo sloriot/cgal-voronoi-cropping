@@ -125,6 +125,7 @@ class Cropped_Voronoi_hds_creator{
   typedef typename HDS::Face_handle HDS_Face_handle;
   typedef typename HDS::Vertex_handle HDS_Vertex_handle;
   typedef typename DT2::Face_handle DT2_Face_handle;
+  typedef typename DT2::Vertex_handle DT2_Vertex_handle;
 
   typedef std::map< std::size_t, HDS_Vertex_handle > Vertex_map;
   typedef std::map< std::pair< DT2_Face_handle, DT2_Face_handle >, Halfedge_handle > Dual_hedge_map;
@@ -520,8 +521,16 @@ class Cropped_Voronoi_hds_creator{
 
     double dx = 0.0025 * ( bbox.xmax() - bbox.xmin() );
     double dy = 0.0025 * ( bbox.ymax() - bbox.ymin() );
-    input_box=typename Input_kernel::Iso_rectangle_2( bbox.xmin()-dx, bbox.ymin()-dy,
-                                                      bbox.xmax()+dx, bbox.ymax()+dy);
+
+    double xmin=bbox.xmin()-dx;
+    double xmax=bbox.xmax()+dx;
+    double ymin=bbox.ymin()-dy;
+    double ymax=bbox.ymax()+dy;
+
+    if (dx==0) { xmin=ymin; xmax=ymax; }
+    if (dy==0) { ymin=xmin; ymax=xmax; }
+
+    input_box=typename Input_kernel::Iso_rectangle_2(xmin, ymin, xmax, ymax);
     exact_box=to_exact(input_box);
   }
 
@@ -552,12 +561,136 @@ class Cropped_Voronoi_hds_creator{
       new_hedges[k]->set_next( new_hedges[ (k+1)%4 ] );
       item_decorator.set_prev( new_hedges[ (k+1)%4 ], new_hedges[k] );
       //set next-prev for border hedges
-      std::cout << (k+3)%4 << std::endl;
       new_hedges[k]->opposite()->set_next( new_hedges[ (k+3)%4 ]->opposite() );
       item_decorator.set_prev( new_hedges[ (k+3)%4 ]->opposite(), new_hedges[k]->opposite() );
     }
 
     item_decorator.set_face_halfedge(new_face, new_hedges[0]);
+  }
+
+  void handle_new_face(std::vector<Halfedge_handle>& new_hedges, DT2_Vertex_handle vh )
+  {
+    if ( !new_hedges.empty() ) // some edges have been created
+    {
+      std::size_t nb_hedges=new_hedges.size();
+      if (nb_hedges == 1) //if there is one edge
+      {
+        HDS_Vertex_handle start_vertex = new_hedges[0]->vertex();
+        HDS_Vertex_handle goal_vertex = new_hedges[0]->opposite()->vertex();
+
+        CGAL_assertion( start_vertex->is_on_border() && goal_vertex->is_on_border() );
+
+        double start_index=index_on_bbox( start_vertex->point(), input_box );
+        double goal_index =index_on_bbox( goal_vertex->point(), input_box );
+
+        if (goal_index<start_index) goal_index+=4;
+
+        if ( std::ceil(goal_index)-std::floor(start_index) == 1 )
+        {
+          set_border_hedge_source( new_hedges[0], new_hedges[0]->opposite()->vertex() );
+          set_border_hedge_target( new_hedges[0], new_hedges[0]->vertex() );
+          return; // they are on the same input_box edge, oriented outside of the box
+        }
+      }
+
+      new_hedges.push_back(new_hedges[0]);
+      HDS_Face_handle new_face=hds.faces_push_back( create_face(vh) );
+      CGAL_assertion( new_hedges[0]!=Halfedge_handle() );
+      item_decorator.set_face_halfedge(new_face,new_hedges[0]); //set one halfedge for the face
+
+      for (std::size_t i=0;i<nb_hedges;++i)
+      {
+        item_decorator.set_face(new_hedges[i],new_face);
+
+        if ( new_hedges[i]->vertex()->is_on_border() &&
+             new_hedges[i]->vertex()!=new_hedges[i+1]->opposite()->vertex() )
+        {
+          CGAL_assertion( new_hedges[i+1]->opposite()->vertex()->is_on_border() );
+          //we need one to several hedges on the iso-rectangle boundary to link the two vertices
+          add_halfedge_on_iso_rectangle(new_face, new_hedges[i], new_hedges[i+1]);
+        }
+        else
+        {
+          new_hedges[i]->set_next(new_hedges[i+1]);
+          item_decorator.set_prev(new_hedges[i+1], new_hedges[i]);
+        }
+      }
+    }
+  }
+
+  struct Sort_along_line
+  {
+    typename Exact_kernel::Vector_2 base;
+    CGAL::Cartesian_converter<Input_kernel, Exact_kernel> to_exact;
+    Sort_along_line(DT2_Vertex_handle v1, DT2_Vertex_handle v2)
+      :base( to_exact( v1->point() ),
+             to_exact( v2->point() ) ) {}
+
+    bool operator() (DT2_Vertex_handle v1, DT2_Vertex_handle v2) const
+    {
+      return ( base * (to_exact( v2->point() ) - to_exact( v1->point() )) ) > 0;
+    }
+  };
+
+  void build_hds_dimension_1()
+  {
+
+    std::vector<DT2_Vertex_handle> vertices;
+    for (typename DT2::Finite_vertices_iterator vit=dt2.finite_vertices_begin();
+                                                vit!=dt2.finite_vertices_end(); ++vit)
+    {
+      vertices.push_back(vit);
+    }
+
+    /// sort the points along the line
+    std::sort(vertices.begin(), vertices.end(), Sort_along_line(vertices[0], vertices[1]) );
+
+    std::size_t nb_pts=vertices.size();
+
+    Halfedge_handle previous_halfedge=Halfedge_handle();
+    std::size_t k=0;
+    //find the first bisector intersecting the rectangle
+    do{
+      typename Exact_kernel::Line_2 bisector =
+        typename Exact_kernel::Construct_bisector_2()(
+            to_exact( vertices[k]->point() ),
+            to_exact( vertices[k+1]->point() )
+      );
+      CGAL_assertion( bisector.has_on_positive_side( to_exact( vertices[k]->point() )  ) );
+
+      typename Exact_kernel::Segment_2 inter;
+      if ( crop_to_iso_rectangle(bisector, bisector, inter) )
+      {
+        //compute the halfedge cropped and set it
+        Halfedge_handle new_halfedge = hds.edges_push_back(typename HDS::Halfedge(), typename HDS::Halfedge());
+        HDS_Vertex_handle source_vertex=hds.vertices_push_back( typename HDS::Vertex( convert_to_input( inter.source() )) );
+        HDS_Vertex_handle target_vertex=hds.vertices_push_back( typename HDS::Vertex( convert_to_input( inter.target() )) );
+        source_vertex->is_on_border()=true;
+        target_vertex->is_on_border()=true;
+        item_decorator.set_vertex(new_halfedge,target_vertex);
+        item_decorator.set_vertex(new_halfedge->opposite(),source_vertex);
+        item_decorator.set_vertex_halfedge(target_vertex, new_halfedge);
+        item_decorator.set_vertex_halfedge(source_vertex, new_halfedge->opposite());
+
+        //set the new face
+        std::vector<Halfedge_handle> new_hedges;
+        if( previous_halfedge != Halfedge_handle() )
+          new_hedges.push_back( previous_halfedge->opposite() );
+
+        new_hedges.push_back( new_halfedge);
+        handle_new_face(new_hedges, vertices[k] );
+
+        previous_halfedge=new_halfedge;
+      }
+    }while (++k!=nb_pts-1);
+
+    if( previous_halfedge != Halfedge_handle() )
+    {
+      //set the last face
+      std::vector<Halfedge_handle> new_hedges;
+      new_hedges.push_back( previous_halfedge->opposite() );
+      handle_new_face(new_hedges, vertices[k] );
+    }
   }
 
 public:
@@ -606,88 +739,51 @@ public:
 
     Halfedge_handle null_halfedge=Halfedge_handle();
 
-    if (dt2.dimension()==-1)
+    switch( dt2.dimension() )
     {
-      HDS_Face_handle new_face=hds.faces_push_back( create_face() );
-      copy_the_box_in_the_hds(new_face);
-      return;
-    }
-
-    if (dt2.dimension()==0)
-    {
-      HDS_Face_handle new_face=hds.faces_push_back(
-        create_face(dt2.finite_vertices_begin()) );
-      copy_the_box_in_the_hds(new_face);
-      return;
-    }
-
-    for (typename DT2::Finite_vertices_iterator  vit=dt2.finite_vertices_begin(),
-                                                 vit_end=dt2.finite_vertices_end();
-                                                 vit!=vit_end; ++vit )
-    {
-      DT2_Face_handle current_face=vit->face(), first_face=current_face;
-      std::vector<Halfedge_handle> new_hedges;
-
-      do{
-        int other_vertex_index=DT2::ccw( current_face->index(vit) );
-        DT2_Face_handle neighbor_face=current_face->neighbor(other_vertex_index);
-
-        Halfedge_handle hedge =
-          get_dual_halfedge_cropped(current_face, neighbor_face,
-                                    other_vertex_index );
-
-        if (hedge!=null_halfedge) new_hedges.push_back(hedge);
-
-        current_face=neighbor_face;
-      }
-      while(current_face!=first_face);
-
-      if ( !new_hedges.empty() ) // some edges have been created
+      case -1:
       {
-        std::size_t nb_hedges=new_hedges.size();
-        if (nb_hedges == 1) //if there is one edge
-        {
-          HDS_Vertex_handle start_vertex = new_hedges[0]->vertex();
-          HDS_Vertex_handle goal_vertex = new_hedges[0]->opposite()->vertex();
-
-          CGAL_assertion( start_vertex->is_on_border() && goal_vertex->is_on_border() );
-
-          double start_index=index_on_bbox( start_vertex->point(), input_box );
-          double goal_index =index_on_bbox( goal_vertex->point(), input_box );
-
-          if (goal_index<start_index) goal_index+=4;
-
-          if ( std::ceil(goal_index)-std::floor(start_index) == 1 )
-          {
-            set_border_hedge_source( new_hedges[0], new_hedges[0]->opposite()->vertex() );
-            set_border_hedge_target( new_hedges[0], new_hedges[0]->vertex() );
-            continue; // they are on the same input_box edge, oriented outside of the box
-          }
-        }
-
-        new_hedges.push_back(new_hedges[0]);
-        HDS_Face_handle new_face=hds.faces_push_back( create_face(vit) );
-        CGAL_assertion( new_hedges[0]!=Halfedge_handle() );
-        item_decorator.set_face_halfedge(new_face,new_hedges[0]); //set one halfedge for the face
-
-        for (std::size_t i=0;i<nb_hedges;++i)
-        {
-          item_decorator.set_face(new_hedges[i],new_face);
-
-          if ( new_hedges[i]->vertex()->is_on_border() &&
-               new_hedges[i]->vertex()!=new_hedges[i+1]->opposite()->vertex() )
-          {
-            CGAL_assertion( new_hedges[i+1]->opposite()->vertex()->is_on_border() );
-            //we need one to several hedges on the iso-rectangle boundary to link the two vertices
-            add_halfedge_on_iso_rectangle(new_face, new_hedges[i], new_hedges[i+1]);
-          }
-          else
-          {
-            new_hedges[i]->set_next(new_hedges[i+1]);
-            item_decorator.set_prev(new_hedges[i+1], new_hedges[i]);
-          }
-        }
+        HDS_Face_handle new_face=hds.faces_push_back( create_face() );
+        copy_the_box_in_the_hds(new_face);
+        return;
       }
+
+      case 0:
+      {
+        HDS_Face_handle new_face=hds.faces_push_back(
+          create_face(dt2.finite_vertices_begin()) );
+        copy_the_box_in_the_hds(new_face);
+        return;
+      }
+
+      case 1:
+        build_hds_dimension_1();
+        break;
+
+      default:
+        for (typename DT2::Finite_vertices_iterator  vit=dt2.finite_vertices_begin(),
+                                                     vit_end=dt2.finite_vertices_end();
+                                                     vit!=vit_end; ++vit )
+        {
+          DT2_Face_handle current_face=vit->face(), first_face=current_face;
+          std::vector<Halfedge_handle> new_hedges;
+
+          do{
+            int other_vertex_index=DT2::ccw( current_face->index(vit) );
+            DT2_Face_handle neighbor_face=current_face->neighbor(other_vertex_index);
+
+            Halfedge_handle hedge =
+              get_dual_halfedge_cropped(current_face, neighbor_face,
+                                        other_vertex_index );
+
+            if (hedge!=null_halfedge) new_hedges.push_back(hedge);
+
+            current_face=neighbor_face;
+          }
+          while(current_face!=first_face);
+
+          handle_new_face( new_hedges, vit );
+        }
     }
 
     //link border halfedges
