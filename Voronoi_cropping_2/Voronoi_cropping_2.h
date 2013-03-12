@@ -65,11 +65,21 @@ public:
 
   /// \todo shall we keep an internal dt3 to avoid rebuilding it in case of a few additionnal points inserted?
 
-  //~ Iso_rectangle_2 get_bonding_iso_rectangle()
-  //~ {return Iso_rectangle_2();}
+  Iso_rectangle_2 voronoi_diagram(HDS_wrapper& hds)
+  {
+    hds.clear();
+    hds.set_info_shared_ptr(m_colors_ptr);
 
-  //~ Iso_rectangle_2 voronoi_diagram(HDS_wrapper& hds)
-  //~ {return Iso_rectangle_2();}
+    typedef CGAL::Simple_cartesian< CGAL::Lazy_exact_nt<CGAL::Gmpq> > Exact_kernel;
+    return Iso_rectangle_2(
+      create_hds_for_cropped_voronoi_diagram<EPIC_Kernel, Exact_kernel>(
+        m_points.begin(),
+        m_points.end(),
+        boost::make_transform_iterator(m_colors_ptr->begin(), Get_pointer()),
+        boost::make_transform_iterator(m_colors_ptr->end(), Get_pointer()),
+        hds.get_data() )
+    );
+  }
 
   void clear()
   {

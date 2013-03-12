@@ -503,10 +503,21 @@ class Cropped_Voronoi_hds_creator{
   /// init input_box and exact_box so that all Voronoi vertices are included
   void init_boxes()
   {
-    CGAL::Bbox_2 bbox=exact_voronoi_vertices[0].bbox();
     std::size_t nb_element = exact_voronoi_vertices.size();
-    for(std::size_t i=1; i< nb_element; ++i)
+    CGAL::Bbox_2 bbox;
+    if ( nb_element <4 )
+    {
+      typename DT2::Finite_vertices_iterator vit=dt2.finite_vertices_begin();
+      typename DT2::Finite_vertices_iterator vit_end=dt2.finite_vertices_end();
+      bbox=vit->point().bbox();
+      for(;++vit!=vit_end;)
+        bbox=bbox+vit->point().bbox();
+    }
+    else
+      bbox=exact_voronoi_vertices[0].bbox();
+    for(std::size_t i=0; i< nb_element; ++i)
       bbox=bbox+exact_voronoi_vertices[i].bbox();
+
     double dx = 0.0025 * ( bbox.xmax() - bbox.xmin() );
     double dy = 0.0025 * ( bbox.ymax() - bbox.ymin() );
     input_box=typename Input_kernel::Iso_rectangle_2( bbox.xmin()-dx, bbox.ymin()-dy,
@@ -777,7 +788,7 @@ struct Create_face_from_info{
   typename HDS::Face
   operator()() const
   {
-    return typename HDS::Face(-1);
+    return typename HDS::Face();
   }
 };
 

@@ -38,6 +38,11 @@ public class test_vcrop {
     CGAL_Voronoi_cropping_2.join_faces(hds);
     print_info(hds);
 
+    vcrop.voronoi_diagram(hds);
+    print_info(hds);
+    CGAL_Voronoi_cropping_2.join_faces(hds);
+    print_info(hds);
+
     for (HDS_Face_handle fh : hds.faces() )
     {
       if (fh.color() == 2) fh.set_color(1); //update the color
