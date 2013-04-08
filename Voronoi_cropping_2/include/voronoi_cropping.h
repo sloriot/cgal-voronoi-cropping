@@ -888,6 +888,45 @@ struct Create_face_from_info{
   }
 };
 
+template < class DT2, class PointIterator, class InfoIterator>
+void dt2_insert_with_info(
+  DT2& dt2,
+  PointIterator point_begin,
+  PointIterator point_end,
+  InfoIterator info_begin,
+  InfoIterator /*info_end*/)
+{
+  std::vector<std::ptrdiff_t> indices;
+  std::vector<typename DT2::Point> points;
+  std::vector<typename DT2::Triangulation_data_structure::Vertex::Info> infos;
+  std::ptrdiff_t index=0;
+  InfoIterator iit=info_begin;
+  for ( PointIterator pit=point_begin;
+        pit!=point_end;++pit, ++iit)
+  {
+    points.push_back( *pit );
+    infos.push_back ( *iit );
+    indices.push_back(index++);
+  }
+
+  typedef CGAL::Spatial_sort_traits_adapter_2<typename DT2::Geom_traits,typename DT2::Point*> Search_traits;
+  
+  CGAL::spatial_sort(indices.begin(),indices.end(),Search_traits(&(points[0]),dt2.geom_traits()));
+
+  typename DT2::Vertex_handle v_hint;
+  typename DT2::Face_handle hint;
+  for (typename std::vector<std::ptrdiff_t>::const_iterator
+    it = indices.begin(), end = indices.end();
+    it != end; ++it){
+    v_hint = dt2.insert(points[*it], hint);
+    if (v_hint!=typename DT2::Vertex_handle()){
+      v_hint->info()=infos[*it];
+      hint=v_hint->face();
+    }
+  }
+
+}
+
 
 /*!
 Version taking a range of points and a range of infos and creating the HDS cropped to the iso-rectangle.
@@ -915,9 +954,11 @@ void create_hds_for_cropped_voronoi_diagram(
   typedef CGAL::Delaunay_triangulation_2<Input_kernel, Tds>                  DT2;
 
   DT2 dt2;
-  dt2.insert(
-    boost::make_zip_iterator( boost::make_tuple(point_begin, info_begin) ),
-    boost::make_zip_iterator( boost::make_tuple(point_end, info_end) ) );
+  //workaround to fix a bug in boost 1.46 with g++ 4.12
+  dt2_insert_with_info(dt2, point_begin, point_end, info_begin, info_end);
+  //dt2.insert(
+  //  boost::make_zip_iterator( boost::make_tuple(point_begin, info_begin) ),
+  //  boost::make_zip_iterator( boost::make_tuple(point_end, info_end) ) );
 
     create_hds_for_cropped_voronoi_diagram<Input_kernel, Exact_kernel>(dt2,
                                                                      iso_rect,
@@ -978,9 +1019,11 @@ create_hds_for_cropped_voronoi_diagram(
   typedef CGAL::Delaunay_triangulation_2<Input_kernel, Tds>                  DT2;
 
   DT2 dt2;
-  dt2.insert(
-    boost::make_zip_iterator( boost::make_tuple(point_begin, info_begin) ),
-    boost::make_zip_iterator( boost::make_tuple(point_end, info_end) ) );
+  //workaround to fix a bug in boost 1.46 with g++ 4.12
+  dt2_insert_with_info(dt2, point_begin, point_end, info_begin, info_end);
+  //dt2.insert(
+  //  boost::make_zip_iterator( boost::make_tuple(point_begin, info_begin) ),
+  //  boost::make_zip_iterator( boost::make_tuple(point_end, info_end) ) );
 
   return
     create_hds_for_cropped_voronoi_diagram<Input_kernel, Exact_kernel>( dt2,
