@@ -910,7 +910,7 @@ void dt2_insert_with_info(
   }
 
   typedef CGAL::Spatial_sort_traits_adapter_2<typename DT2::Geom_traits,typename DT2::Point*> Search_traits;
-  
+
   CGAL::spatial_sort(indices.begin(),indices.end(),Search_traits(&(points[0]),dt2.geom_traits()));
 
   typename DT2::Vertex_handle v_hint;

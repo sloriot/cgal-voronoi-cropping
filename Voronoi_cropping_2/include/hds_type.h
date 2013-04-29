@@ -21,10 +21,11 @@ public:
 template <class Refs>
 class Face_with_int_ptr : public CGAL::HalfedgeDS_face_base<Refs> {
   typedef typename Refs::Halfedge_handle Halfedge_handle;
-  int* m_color_ptr;
+  std::pair<int,int>* m_index_and_color_ptr;
 public:
-  Face_with_int_ptr(int* ptr=NULL):m_color_ptr(ptr) {}
-  int& color() {return *m_color_ptr; }
+  Face_with_int_ptr(std::pair<int,int>* ptr=NULL):m_index_and_color_ptr(ptr) {}
+  int& color() {return m_index_and_color_ptr->second; }
+  int  index() {return m_index_and_color_ptr->first; }
   std::vector<Halfedge_handle> holes;
 };
 

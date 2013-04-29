@@ -58,8 +58,9 @@ public class test_vcrop {
 
     for ( HDS_Face_handle fh : hds.faces() )
     {
-      if ( fh.has_holes() ) System.out.println("Start a new face with holes\n");
-      else System.out.println("Start a new face\n");
+      if ( fh.has_holes() ) System.out.println("Start a new face with holes");
+      else System.out.println("Start a new face");
+      System.out.println("Corresponding input point: "+vcrop.get_point(fh.point_index())+"\n");
       HDS_Halfedge_handle hedge = fh.halfedge();
       HDS_Halfedge_handle first = hedge.clone();
 

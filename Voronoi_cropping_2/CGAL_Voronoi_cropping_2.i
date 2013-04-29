@@ -33,6 +33,10 @@ SWIG_CGAL_add_java_loadLibrary(CGAL_Voronoi_cropping_2)
     $self->get_data()->color()=c;
   }
 
+  int point_index(){
+    return $self->get_data()->index();
+  }
+
   bool has_holes(){
     return !$self->get_data()->holes.empty();
   }
