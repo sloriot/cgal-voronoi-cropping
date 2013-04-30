@@ -1337,7 +1337,7 @@ void join_faces_with_same_color(HDS& hds)
           faces_to_handles[target->opposite()->face()] );
         source=source->next();
 
-        hds.vertices_erase(target->vertex()); //remove target vertex not remove in the loop below
+        hds.vertices_erase(target->vertex()); //remove target vertex not removed in the loop below
       }
 
       //set to null the pointer of edges to remove
@@ -1400,7 +1400,7 @@ void join_faces_with_same_color(HDS& hds)
         face->holes.push_back(hit); //this is a hole
     }
     else
-      face->holes.push_back(hit); //this is a hole
+      face->holes.push_back(hit); //this is a hole, the face "master" halfedge is already set
 
     //set the face of the halfedges
     typename HDS::Halfedge_handle h=hit->next();
