@@ -218,6 +218,60 @@ void test5()
   CGAL_assertion( d.is_valid(false,3) );
 }
 
+void test6()
+{
+  std::cout << "test6" <<std::endl;
+  std::vector<K::Point_2> points;
+  points.push_back( K::Point_2(1,0) );
+  points.push_back( K::Point_2(1,1) );
+  points.push_back( K::Point_2(0,1) );
+  points.push_back( K::Point_2(0,0) );
+
+  int colors[]={1,2,3,4};
+
+  HDS hds;
+  K::Iso_rectangle_2 bbox(-1, -1, 2, 2);
+  create_hds_for_cropped_voronoi_diagram<K, Exact_kernel>(points.begin(), points.end(), colors, colors+4, bbox, hds);
+  CGAL_assertion ( check(hds, 9, 24, 4) );
+
+  CGAL::HalfedgeDS_decorator<HDS> d(hds);
+  CGAL_assertion( d.is_valid(false,3) );
+}
+
+void test6bis()
+{
+  std::cout << "test6bis" <<std::endl;
+  std::vector<K::Point_2> points;
+ 
+  points.push_back( K::Point_2(0.3780546928833294,10.077223947566674)); 
+  points.push_back( K::Point_2(0.28861197378333725,10.256109385766658));
+  points.push_back( K::Point_2(0.7113880262166623,10.243890614233342));
+  points.push_back( K::Point_2(0.621945307116671,10.422776052433326));
+  points.push_back( K::Point_2(1.0346946247734936,10.406211498509538));
+  points.push_back( K::Point_2(0.9457859736717265,10.584028800713073));
+  points.push_back( K::Point_2(0.9864771388046294,10.599081442384993));
+  points.push_back( K::Point_2(1.3575868958369663,10.4863190833188));
+  points.push_back( K::Point_2(1.3090797708297002,10.680347583347867));
+  points.push_back( K::Point_2(1.6909202291703,10.569652416652133));
+  points.push_back( K::Point_2(1.642413104163033,10.7636809166812));
+  // comment the next line makes it work...
+  points.push_back( K::Point_2(2.0242535625036333,10.652985749985467));
+
+  int colors[]={2,1,2,1,2,1,1,2,1,2,1,2};
+
+  std::ofstream output("input.xyz");
+  for (std::size_t i=0; i <points.size(); ++i)
+    output << points[i] << " 0\n";
+  output.close();
+  
+  HDS hds;
+  K::Iso_rectangle_2 bbox( K::Point_2(-17.49, -13.6), K::Point_2(30.39, 25.6) );
+  create_hds_for_cropped_voronoi_diagram<K, Exact_kernel>(points.begin(), points.end(), colors, colors+12, bbox, hds);
+  write_hds(hds, "before.cgal");
+  join_faces_with_same_color(hds);
+  write_hds(hds, "after.cgal");
+}
+
 int main(int argc, char** argv)
 {
   test1();
@@ -225,6 +279,8 @@ int main(int argc, char** argv)
   test3();
   test4();
   test5();
+  test6();
+  test6bis();
 
   int n=100;
   if (argc==2)

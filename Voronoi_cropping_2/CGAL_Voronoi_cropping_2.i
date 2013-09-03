@@ -103,7 +103,7 @@ void join_faces(HalfedgeDS_vc_wrapper<HDS_d>&);
 %{
   void join_faces(HalfedgeDS_vc_wrapper<HDS_d>& hds)
   {
-    join_faces_with_same_color(hds.get_data());
+    join_faces_with_same_color(hds.get_data(), true);
   }
 %}
 

@@ -408,7 +408,11 @@ class Cropped_Voronoi_hds_creator{
         }
         else
         {
+          //in case of co-circular input, a halfedge might be a point
           if ( source_face->info().dual_index() == target_face->info().dual_index() ) return Halfedge_handle();
+
+          //due to the approximation into double, the embedded into double edge can be null or swapped
+          //thus we check that the interval box around the points do not overlap
 
           //the dual is a segment
           if ( source_face->info().is_dual_in_bbox() &&
@@ -1123,12 +1127,12 @@ void clean_up_hds(HDS&hds)
 #include <CGAL/Union_find.h>
 
 template <class HDS>
-void join_faces_with_same_color(HDS& hds)
+void join_faces_with_same_color(HDS& hds, bool do_clean_hds=false)
 {
   // since the voronoi vertices are created from exact versions,
   // it might happen during the rounding that two vertices that are
   // close become identical
-  clean_up_hds(hds);
+  if (do_clean_hds) clean_up_hds(hds);
 
   // collect the set of halfedges that need to be removed: incident faces have the same color
   std::vector<typename HDS::Halfedge_handle> hedges_to_remove;
