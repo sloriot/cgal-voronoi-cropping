@@ -1124,6 +1124,21 @@ void clean_up_hds(HDS&hds)
   }
 }
 
+
+template<class Halfedge_handle>
+CGAL::Bbox_2
+bbox_of_halfedges_sequences(Halfedge_handle h)
+{
+  CGAL::Bbox_2 bbox=h->vertex()->point().bbox();
+  Halfedge_handle hit=h->next();
+  while(h!=hit)
+  {
+    bbox=bbox+hit->vertex()->point().bbox();
+    hit=hit->next();
+  }
+  return bbox;
+}
+
 #include <CGAL/Union_find.h>
 
 template <class HDS>
@@ -1413,23 +1428,7 @@ void join_faces_with_same_color(HDS& hds, bool do_clean_hds=false)
     typename HDS::Face_handle face=*faces_uf.find( faces_to_handles[hit->face()] );
     item_decorator.set_face(hit, face); //set the face of the halfedge
     if (face->halfedge() == null_halfedge)
-    {
-      const typename HDS::Vertex::Point& p=hit->opposite()->vertex()->point();
-      const typename HDS::Vertex::Point& q=hit->vertex()->point();
-      typename HDS::Halfedge_handle tmp=hit;
-      CGAL::Orientation orient =
-        orientation( p, q, tmp->next()->vertex()->point() );
-      while (orient==CGAL::COLLINEAR)
-      {
-        tmp=tmp->next();
-        orient = orientation( p, q, tmp->next()->vertex()->point() );
-      }
-
-      if( orient==CGAL::COUNTERCLOCKWISE )
-        item_decorator.set_face_halfedge(face, hit); //this is the outer ccb
-      else
-        face->holes.push_back(hit); //this is a hole
-    }
+      item_decorator.set_face_halfedge(face, hit); //set the first as the outer ccb
     else
       face->holes.push_back(hit); //this is a hole, the face "master" halfedge is already set
 
@@ -1447,6 +1446,30 @@ void join_faces_with_same_color(HDS& hds, bool do_clean_hds=false)
     if (fit->halfedge() == null_halfedge)
       hds.faces_erase(fit++);
     else
+    {
+      if ( !fit->holes.empty() )
+      {
+        /// Ensure that the connected component of edges (CCE) of the halfedge
+        /// associated to the face is the one "containing" all the holes.
+        /// To check this, we set the CCE to be the one associated to the face
+        /// if its bounding box contains that of all other CCE.
+        typename HDS::Halfedge_handle halfedge = fit->halfedge();
+        CGAL::Bbox_2 max_bbox=bbox_of_halfedges_sequences(halfedge);
+        std::size_t nb_holes = fit->holes.size();
+        for( std::size_t i=0; i<nb_holes; ++i)
+        {
+          CGAL::Bbox_2 bbox =
+            bbox_of_halfedges_sequences( fit->holes[i] );
+          //there is only one bbox that contains them all
+          if (bbox+max_bbox == bbox)
+          {
+            std::swap(halfedge, fit->holes[i]);
+            max_bbox=bbox;
+          }
+        }
+        item_decorator.set_face_halfedge(fit, halfedge);
+      }
       ++fit;
+    }
   }
 }
