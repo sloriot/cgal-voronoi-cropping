@@ -1,0 +1,1 @@
+Using CGAL and the cgal-bindings, provide a utility to work on Voronoi diagrams
